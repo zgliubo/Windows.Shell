@@ -99,11 +99,11 @@ namespace Windows.Shell
 
         private static void DrawRight(GlowDrawingContext ctx, bool isActive)
         {
-            var ox = 0;
+            //var ox = 0;
             var ow = 9;
             if (ctx.Width < 9)
             {
-                ox = 9 - ctx.Width;
+                //ox = 9 - ctx.Width;
                 ow = ctx.Width;
             }
 

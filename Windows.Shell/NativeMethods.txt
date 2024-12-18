@@ -44,10 +44,10 @@ SendMessage
 SetLayeredWindowAttributes
 SetWindowPos
 SetWindowRgn
-SHAppBarMessage
 ShowWindow
 SIZE_*
 TranslateMessage
+UnregisterClass
 UpdateLayeredWindow
 UpdateWindow
 USER_DEFAULT_SCREEN_DPI

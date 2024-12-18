@@ -18,7 +18,7 @@ namespace Windows.Shell
     //对于低版本windows 设置hbrBackground:Null
     //对于禁用使用UpdateLayeredWindow + 位图
 
-    class NonClientWindow
+    class NonClientWindow: DisposableObject
     {
         const string CLASS_NAME = "NONCLIENT_WINDOW_CLASS";
 
@@ -71,6 +71,7 @@ namespace Windows.Shell
             
             var dwExStyle = WINDOW_EX_STYLE.WS_EX_LAYERED;
             var dwStyle = asChild ? WINDOW_STYLE.WS_CHILD : WINDOW_STYLE.WS_POPUP;
+            dwStyle |= WINDOW_STYLE.WS_VISIBLE;
 
             if (OsVersion.IsWindows10_1507OrGreater)
             {
@@ -125,6 +126,11 @@ namespace Windows.Shell
         }
 
         public void Close()
+        {
+            Dispose();
+        }
+
+        protected override void DisposeNativeResources()
         {
             PInvoke.DestroyWindow(Handle);
         }

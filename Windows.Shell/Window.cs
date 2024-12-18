@@ -9,22 +9,27 @@ using System.Globalization;
 
 namespace Windows.Shell
 {
-    class Window
+    class Window: DisposableObject
     {
         private readonly WNDPROC _wndProc;
-        private readonly string _className;
-        public HWND Handle { get; private set; }
+        private readonly string className;
+        private readonly HWND owner;
         private TopDragWindow? topDragWindow;
         private ControlWindow? controlWindow;
         private List<ResizeWindow>? resizeWindows;
         private bool isActive;
         private bool dwmEnabled;
-
-        public Window()
+        
+        public Window(HWND? owner = null)
         {
             _wndProc = WndProc;
-            _className = CreateClassName();
+            className = CreateClassName();
+            RegisterClass(className);
+            Handle = CreateWindow(className, owner);
+            Init();
         }
+
+        public HWND Handle { get; }
 
         private ResizeMode _ResizeMode = ResizeMode.CanResize;
         public ResizeMode ResizeMode
@@ -34,6 +39,39 @@ namespace Windows.Shell
             {
                 _ResizeMode = value;
                 CreateResizibility();
+            }
+        }
+
+        public void Show() 
+        {
+            PInvoke.ShowWindow(Handle, SHOW_WINDOW_CMD.SW_SHOW);
+        }
+
+        public void Hide()
+        {
+            PInvoke.ShowWindow(Handle, SHOW_WINDOW_CMD.SW_HIDE);
+        }
+
+        public void Close()
+        {
+            Dispose();
+        }
+
+        private void Init()
+        {
+            CreateResizibility();
+
+            PInvoke.DwmIsCompositionEnabled(out var dwmEnabled);
+            this.dwmEnabled = dwmEnabled;
+
+            if (OsVersion.IsWindows10_1507OrGreater)
+            {
+                topDragWindow = new TopDragWindow(default, Handle);
+                controlWindow = new ControlWindow(default, Handle);
+            }
+            else
+            {
+                resizeWindows = ResizeWindow.CreateWindows(default, Handle);
             }
         }
 
@@ -57,7 +95,7 @@ namespace Windows.Shell
             return className;
         }
 
-        private unsafe void RegisterClass()
+        private unsafe void RegisterClass(string className)
         {
             var wNDCLASSEXW = default(WNDCLASSEXW);
             wNDCLASSEXW.cbSize = (uint)Marshal.SizeOf(wNDCLASSEXW);
@@ -71,7 +109,7 @@ namespace Windows.Shell
             wNDCLASSEXW.hbrBackground = new HBRUSH(PInvoke.GetStockObject(GET_STOCK_OBJECT_FLAGS.WHITE_BRUSH));
             wNDCLASSEXW.lpszMenuName = (PCWSTR)null;
 
-            fixed (char* c = _className)
+            fixed (char* c = className)
             {
                 wNDCLASSEXW.lpszClassName = c;
                 if (PInvoke.RegisterClassEx(wNDCLASSEXW) == 0)
@@ -81,13 +119,11 @@ namespace Windows.Shell
             }
         }
 
-        public unsafe bool CreateWindow(HWND? owner = null)
+        public static unsafe HWND CreateWindow(string className, HWND? owner = null)
         {
-            RegisterClass();
-
             var hwnd = PInvoke.CreateWindowEx(
                  WINDOW_EX_STYLE.WS_EX_APPWINDOW,
-                 _className,
+                 className,
                  string.Empty,
                  WINDOW_STYLE.WS_OVERLAPPEDWINDOW,
                  PInvoke.CW_USEDEFAULT,
@@ -103,34 +139,8 @@ namespace Windows.Shell
             {
                 throw new Win32Exception(Marshal.GetLastWin32Error());
             }
-            this.Handle = hwnd;
 
-            CreateResizibility();
-
-            PInvoke.DwmIsCompositionEnabled(out var dwmEnabled);
-            this.dwmEnabled = dwmEnabled;
-
-            if (OsVersion.IsWindows10_1507OrGreater)
-            {
-                topDragWindow = new TopDragWindow(default, hwnd);
-                controlWindow = new ControlWindow(default, hwnd);
-            }
-            else
-            {
-                resizeWindows = ResizeWindow.CreateWindows(default, hwnd);
-            }
-
-            PInvoke.ShowWindow(hwnd, SHOW_WINDOW_CMD.SW_SHOW);
-
-            if (this.ResizeMode != ResizeMode.NoResize)
-            {
-                topDragWindow?.Show();
-                resizeWindows?.ForEach(x => x.Show());
-            }
-
-            controlWindow?.Show();
-
-            return true;
+            return hwnd;
         }
 
         private LRESULT WndProc(HWND hwnd, uint msg, WPARAM wParam, LPARAM lParam)
@@ -177,7 +187,7 @@ namespace Windows.Shell
         {
             var rect = new RECT(0, 0, PInvoke.PARAM.LOWORD(lParam), PInvoke.PARAM.HIWORD(lParam));
 
-            if (controlWindow != null)
+            if (controlWindow != null || topDragWindow != null)
             {
                 var dpi = WindowHelper.GetDpiForWindow(hwnd);
                 var size = WindowHelper.GetWindowBorderSize(dpi);
@@ -187,6 +197,17 @@ namespace Windows.Shell
                 var count = this.ResizeMode == ResizeMode.NoResize ? 1 : 3;
                 var width = (int)Math.Round((double)ControlWindow.ButtonWidth * dpi / PInvoke.USER_DEFAULT_SCREEN_DPI) * count;
                 controlWindow?.UpdatePosition(new RECT(rect.Width - width, 0, rect.Width, height));
+            }
+
+            if (wParam == PInvoke.SIZE_MAXIMIZED)
+            {
+                topDragWindow?.Hide();
+                resizeWindows?.ForEach(x => x.Hide());
+            }
+            else
+            {
+                topDragWindow?.Show();
+                resizeWindows?.ForEach(x => x.Show());
             }
 
             if (!dwmEnabled)
@@ -205,7 +226,7 @@ namespace Windows.Shell
 
         private LRESULT WmSetCursor(HWND hwnd, WPARAM wParam, LPARAM lParam, ref bool handled)
         {
-            //对于DWM不可用时, 模态框闪烁
+            //对于自定义边框, 子窗口为模态框时, 激活闪烁 (需要配合WM_NCACTIVATE)
             if (resizeWindows != null)
             {
                 if (PInvoke.PARAM.SignedLOWORD(lParam) == PInvoke.HTERROR && PInvoke.PARAM.SignedHIWORD(lParam) == PInvoke.WM_LBUTTONDOWN)
@@ -381,6 +402,22 @@ namespace Windows.Shell
             }
 
             PInvoke.SetWindowLong(this.Handle, WINDOW_LONG_PTR_INDEX.GWL_STYLE, (nint)style);
+        }
+
+        override protected void DisposeManagedResources()
+        {
+            resizeWindows?.ForEach(x => x.Close());
+            resizeWindows = null;
+            controlWindow?.Close();
+            controlWindow = null;
+            topDragWindow?.Close();
+            topDragWindow = null;
+        }
+
+        protected override void DisposeNativeResources()
+        {
+            PInvoke.DestroyWindow(Handle);
+            PInvoke.UnregisterClass(this.className, PInvoke.GetModuleHandle((string?)null));
         }
     }
 

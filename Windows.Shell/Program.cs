@@ -9,7 +9,7 @@ namespace Windows.Shell
         static void Main(string[] args)
         {
             var window = new Window();
-            window.CreateWindow();
+            window.Show();
             while (PInvoke.GetMessage(out MSG msg, HWND.Null, 0, 0))
             {
                 PInvoke.TranslateMessage(msg);

@@ -28,6 +28,7 @@ namespace Windows.Shell
         private readonly Dock _dock;
         private readonly bool dwmEnabled = true;
         private bool isActive;
+        private readonly static bool isWin8 = OsVersion.IsWindows8OrGreater && !OsVersion.IsWindows10_1507OrGreater;
 
         public ResizeWindow(RECT position, HWND parent, Dock dock) : base(position, parent, false)
         {
@@ -35,7 +36,7 @@ namespace Windows.Shell
             PInvoke.DwmIsCompositionEnabled(out var dwmEnabled);
             this.dwmEnabled = dwmEnabled;
 
-            if (!dwmEnabled)
+            if (!dwmEnabled || isWin8)
             {
                 var style = PInvoke.GetWindowLong(this.Handle, WINDOW_LONG_PTR_INDEX.GWL_EXSTYLE);
                 style &= ~(nint)WINDOW_EX_STYLE.WS_EX_LAYERED;
@@ -47,7 +48,8 @@ namespace Windows.Shell
 
         public static List<ResizeWindow> CreateWindows(RECT position, HWND parent)
         {
-            ExtendGlassFrame(parent);
+            if (!isWin8)
+                ExtendGlassFrame(parent);
 
             return new List<ResizeWindow>
             {
@@ -154,8 +156,9 @@ namespace Windows.Shell
                     break;
             }
 
-            if (!dwmEnabled)
+            if (!dwmEnabled || isWin8)
             {
+                //win7 DWM可能被禁用, win8/8.1无边框颜色, 所以启用边框
                 GlowHelper.RenderLayeredWindow(this.Handle, position, _dock, isActive);
             }
 
@@ -167,7 +170,7 @@ namespace Windows.Shell
             var style = (uint)PInvoke.GetWindowLong(this.ParentHandle, WINDOW_LONG_PTR_INDEX.GWL_STYLE);
             if ((style & (uint)WINDOW_STYLE.WS_THICKFRAME) == 0) // NoResize
             {
-                return new LRESULT((nint)PInvoke.HTCLOSE);
+                return new LRESULT((nint)PInvoke.HTNOWHERE);
             }
 
             var _pos = PInvoke.PARAM.ToPoint(lParam);
@@ -231,7 +234,7 @@ namespace Windows.Shell
                 return new LRESULT((nint)PInvoke.HTBOTTOM);
             }
 
-            return new LRESULT(PInvoke.HTERROR);
+            return new LRESULT((nint)PInvoke.HTNOWHERE);
         }
     }
 }
