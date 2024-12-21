@@ -35,6 +35,7 @@ LoadCursor
 LoadMenu
 LoadIcon
 MapWindowPoints
+MA_*
 MonitorFromWindow 
 MoveWindow
 ReleaseDC
