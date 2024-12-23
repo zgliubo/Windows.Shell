@@ -19,11 +19,12 @@ namespace Windows.Shell
         private List<ResizeWindow>? resizeWindows;
         private bool isActive;
         private bool dwmEnabled;
+        private Webview2? webview2;
         
         public Window(HWND? owner = null)
         {
             _wndProc = WndProc;
-            className = CreateClassName();
+            className = Guid.NewGuid().ToString();
             RegisterClass(className);
             Handle = CreateWindow(className, owner);
             Init();
@@ -73,26 +74,11 @@ namespace Windows.Shell
             {
                 resizeWindows = ResizeWindow.CreateWindows(default, Handle);
             }
-        }
 
-        private static string CreateClassName()
-        {
-            string appName;
-            if (null != AppDomain.CurrentDomain.FriendlyName && 128 <= AppDomain.CurrentDomain.FriendlyName.Length)
-                appName = AppDomain.CurrentDomain.FriendlyName[..128];
-            else
-                appName = AppDomain.CurrentDomain.FriendlyName!;
-
-            string threadName;
-            if (null != Thread.CurrentThread.Name && 64 <= Thread.CurrentThread.Name.Length)
-                threadName = Thread.CurrentThread.Name[..64];
-            else
-                threadName = Thread.CurrentThread.Name!;
-
-            string randomName = Guid.NewGuid().ToString();
-            string className = string.Format(CultureInfo.InvariantCulture, "HwndWrapper[{0};{1};{2}]", appName, threadName, randomName);
-
-            return className;
+            this.webview2 = new Webview2(Handle)
+            {
+                Source = new Uri(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "index.html"))
+            };
         }
 
         private unsafe void RegisterClass(string className)
@@ -171,7 +157,7 @@ namespace Windows.Shell
                     WmDwmCompositionChanged(hwnd);
                     break;
                 case PInvoke.WM_ACTIVATE:
-                    WmActivate(hwnd, wParam);
+                    result = WmActivate(hwnd, wParam, ref handled);
                     break;
             }
 
@@ -186,6 +172,8 @@ namespace Windows.Shell
         private void WmSize(HWND hwnd, WPARAM wParam, LPARAM lParam)
         {
             var rect = new RECT(0, 0, PInvoke.PARAM.LOWORD(lParam), PInvoke.PARAM.HIWORD(lParam));
+
+            webview2?.SetSize(rect);
 
             if (controlWindow != null || topDragWindow != null)
             {
@@ -342,15 +330,23 @@ namespace Windows.Shell
             return new LRESULT(0);
         }
 
-        private void WmActivate(HWND hwnd, WPARAM wParam)
+        private LRESULT WmActivate(HWND hwnd, WPARAM wParam, ref bool handled)
         {
             isActive = wParam != 0;
+
+            if (isActive && webview2 != null)
+            {
+                handled = true;
+                webview2.SetFocus();
+            }
 
             if (resizeWindows != null)
             {
                 PInvoke.GetClientRect(hwnd, out var rect);
                 resizeWindows.ForEach(x => x.UpdateGlow(rect, isActive));
             }
+
+            return new LRESULT(0);
         }
 
         private void WmDwmCompositionChanged(HWND hwnd)

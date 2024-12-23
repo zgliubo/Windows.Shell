@@ -94,11 +94,10 @@ namespace Windows.Shell
         {
             switch (msg)
             {
+                case PInvoke.WM_MOUSEACTIVATE:
+                    return new LRESULT((nint)PInvoke.MA_NOACTIVATE);
                 case PInvoke.WM_NCHITTEST:
                     return HandleHitTest(hwnd, lParam);
-                case PInvoke.WM_NCACTIVATE:
-                    PInvoke.SendMessage(ParentHandle, PInvoke.WM_NCACTIVATE, wParam, lParam);
-                    break;
                 case PInvoke.WM_NCLBUTTONDOWN:
                 case PInvoke.WM_NCLBUTTONDBLCLK:
                 case PInvoke.WM_NCRBUTTONDOWN:
@@ -107,7 +106,6 @@ namespace Windows.Shell
                 case PInvoke.WM_NCMBUTTONDBLCLK:
                 case PInvoke.WM_NCXBUTTONDOWN:
                 case PInvoke.WM_NCXBUTTONDBLCLK:
-                    PInvoke.SendMessage(ParentHandle, PInvoke.WM_ACTIVATE, PInvoke.WA_CLICKACTIVE, 0);
                     PInvoke.SendMessage(ParentHandle, msg, wParam, 0);
                     return new LRESULT(0);
             }

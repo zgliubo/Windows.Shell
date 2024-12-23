@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Document</title>
+</head>
+
+<body>
+    <style>
+        html,
+        body {
+            background: #121832;
+            margin: 0px;
+            padding: 0px;
+            width: 100%;
+            height: 100%;
+        }
+    </style>
+    <div id="top" onmousedown="handleMouseDown(event)" style="height: 32px; background-color: red;"></div>
+    <div>
+        <input style="width: 100%; box-sizing: border-box;">
+    </div>
+    <script>
+        let lastClickTime = 0;
+
+        function handleMouseDown(e) {
+            //e.preventDefault();
+            //e.stopPropagation();
+
+            const currentTime = new Date().getTime();
+            const isDoubleClick = currentTime - lastClickTime < 300;
+            lastClickTime = currentTime;
+
+            chrome.webview.hostObjects.sync.nativeWindow.HitTestCaption(isDoubleClick);
+        }
+    </script>
+</body>
+
+</html>

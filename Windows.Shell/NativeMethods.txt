@@ -34,9 +34,12 @@ IsWindowVisible
 LoadCursor
 LoadMenu
 LoadIcon
+MA_*
 MapWindowPoints
 MonitorFromWindow 
 MoveWindow
+PostMessage
+ReleaseCapture
 ReleaseDC
 RegisterClassEx
 SelectObject
