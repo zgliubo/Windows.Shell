@@ -72,7 +72,14 @@ namespace Windows.Shell
             }
             else
             {
-                resizeWindows = ResizeWindow.CreateWindows(default, Handle);
+                //dwm禁用,win8/8.1没有窗口阴影
+                var isWin8 = OsVersion.IsWindows8OrGreater && !OsVersion.IsWindows10_1507OrGreater;
+                Console.WriteLine(!dwmEnabled || isWin8);
+                resizeWindows = ResizeWindow.CreateWindows(default, Handle, !dwmEnabled || isWin8);
+                if (!isWin8 && dwmEnabled)
+                {
+                    ExtendGlassFrame(Handle);
+                }
             }
 
             this.webview2 = new Webview2(Handle)
@@ -358,6 +365,10 @@ namespace Windows.Shell
             {
                 PInvoke.GetClientRect(hwnd, out var rect);
                 ResizeWindow.OnDwmChanged(this.resizeWindows, rect, hwnd, dwmEnabled, isActive);
+                if (dwmEnabled)
+                {
+                    ExtendGlassFrame(hwnd);
+                }
             }
         }
 
@@ -398,6 +409,14 @@ namespace Windows.Shell
             }
 
             PInvoke.SetWindowLong(this.Handle, WINDOW_LONG_PTR_INDEX.GWL_STYLE, (nint)style);
+        }
+
+        private static void ExtendGlassFrame(HWND hwnd)
+        {
+            var margin = new Win32.UI.Controls.MARGINS { cxLeftWidth = 1, cxRightWidth = 1, cyTopHeight = 1, cyBottomHeight = 1 };
+            PInvoke.DwmExtendFrameIntoClientArea(hwnd, margin);
+            var flags = SET_WINDOW_POS_FLAGS.SWP_FRAMECHANGED | SET_WINDOW_POS_FLAGS.SWP_NOSIZE | SET_WINDOW_POS_FLAGS.SWP_NOMOVE | SET_WINDOW_POS_FLAGS.SWP_NOZORDER | SET_WINDOW_POS_FLAGS.SWP_NOOWNERZORDER | SET_WINDOW_POS_FLAGS.SWP_NOACTIVATE;
+            PInvoke.SetWindowPos(hwnd, HWND.Null, 0, 0, 0, 0, flags);
         }
 
         override protected void DisposeManagedResources()

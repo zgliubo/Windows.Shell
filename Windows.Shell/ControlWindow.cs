@@ -16,7 +16,7 @@ namespace Windows.Shell
         public const int ButtonHeight = 32;
         public const int ButtonWidth = 46;
 
-        public ControlWindow(RECT position, HWND parent) : base(position, parent, true)
+        public ControlWindow(RECT position, HWND parent) : base(position, parent)
         {
             var style = (uint)PInvoke.GetWindowLong(this.Handle, WINDOW_LONG_PTR_INDEX.GWL_STYLE);
             style |= (uint)WINDOW_STYLE.WS_MINIMIZEBOX;
