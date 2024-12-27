@@ -13,11 +13,6 @@ using System.Runtime.InteropServices;
 
 namespace Windows.Shell
 {
-    //非客户区窗口 (透明)
-    //对于高版本windows 设置hbrBackground:BLACK_BRUSH + dwExStyle:WS_EX_NOREDIRECTIONBITMAP
-    //对于低版本windows 设置hbrBackground:Null
-    //对于禁用使用UpdateLayeredWindow + 位图
-
     class NonClientWindow: DisposableObject
     {
         const string CLASS_NAME = "NONCLIENT_WINDOW_CLASS";
@@ -28,17 +23,26 @@ namespace Windows.Shell
         }
 
         private readonly WNDPROC wndProc;
-        private readonly bool asChild = true;
-        protected readonly HWND Handle;
-        protected readonly HWND ParentHandle;
+        private readonly bool asChild;
+        private readonly bool transparent;
+        protected HWND Handle { get; }
+        protected HWND ParentHandle { get; }
 
-        public NonClientWindow(RECT position, HWND parent, bool asChild)
+        public NonClientWindow(RECT position, HWND parent) : this(position, parent, true, true) { }
+
+        public NonClientWindow(RECT position, HWND parent, bool asChild, bool transparent)
         {
             this.asChild = asChild;
+            this.transparent = transparent;
             wndProc = WndProc;
             ParentHandle = parent;
             Handle = CreateWindow(position, parent);
-            PInvoke.SetLayeredWindowAttributes(Handle, (COLORREF)0, 255, LAYERED_WINDOW_ATTRIBUTES_FLAGS.LWA_ALPHA);
+
+            if (transparent)
+            {
+                PInvoke.SetLayeredWindowAttributes(Handle, (COLORREF)0, 255, LAYERED_WINDOW_ATTRIBUTES_FLAGS.LWA_ALPHA);
+            }
+            
             SubclassWndProc();
         }
 
@@ -52,8 +56,8 @@ namespace Windows.Shell
             wNDCLASSEXW.cbWndExtra = 0;
             wNDCLASSEXW.hInstance = PInvoke.GetModuleHandle((PCWSTR)null);
             wNDCLASSEXW.hIcon = HICON.Null;
-            wNDCLASSEXW.hCursor = PInvoke.LoadCursor(HINSTANCE.Null, PInvoke.IDC_ARROW);
-            wNDCLASSEXW.hbrBackground = OsVersion.IsWindows10_1507OrGreater ? new HBRUSH(PInvoke.GetStockObject(GET_STOCK_OBJECT_FLAGS.BLACK_BRUSH)) : HBRUSH.Null;
+            wNDCLASSEXW.hCursor = HCURSOR.Null;
+            wNDCLASSEXW.hbrBackground = HBRUSH.Null;
             wNDCLASSEXW.lpszMenuName = (PCWSTR)null;
 
             fixed (char* c = CLASS_NAME)
@@ -73,7 +77,7 @@ namespace Windows.Shell
             var dwStyle = asChild ? WINDOW_STYLE.WS_CHILD : WINDOW_STYLE.WS_POPUP;
             dwStyle |= WINDOW_STYLE.WS_VISIBLE;
 
-            if (OsVersion.IsWindows10_1507OrGreater)
+            if (transparent && OsVersion.IsWindows10_1507OrGreater)
             {
                 dwExStyle |= WINDOW_EX_STYLE.WS_EX_NOREDIRECTIONBITMAP;
             }

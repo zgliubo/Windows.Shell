@@ -26,37 +26,24 @@ namespace Windows.Shell
         }
 
         private readonly Dock _dock;
-        private readonly bool dwmEnabled = true;
+        private readonly bool showGlow;
         private bool isActive;
-        private readonly static bool isWin8 = OsVersion.IsWindows8OrGreater && !OsVersion.IsWindows10_1507OrGreater;
 
-        public ResizeWindow(RECT position, HWND parent, Dock dock) : base(position, parent, false)
+        public ResizeWindow(RECT position, HWND parent, Dock dock, bool showGlow) : base(position, parent, false, !showGlow)
         {
             _dock = dock;
-            PInvoke.DwmIsCompositionEnabled(out var dwmEnabled);
-            this.dwmEnabled = dwmEnabled;
+            this.showGlow = showGlow;
 
-            if (!dwmEnabled || isWin8)
-            {
-                var style = PInvoke.GetWindowLong(this.Handle, WINDOW_LONG_PTR_INDEX.GWL_EXSTYLE);
-                style &= ~(nint)WINDOW_EX_STYLE.WS_EX_LAYERED;
-                PInvoke.SetWindowLong(this.Handle, WINDOW_LONG_PTR_INDEX.GWL_EXSTYLE, style);
-                style |= (nint)WINDOW_EX_STYLE.WS_EX_LAYERED;
-                PInvoke.SetWindowLong(this.Handle, WINDOW_LONG_PTR_INDEX.GWL_EXSTYLE, style);
-            }
         }
 
-        public static List<ResizeWindow> CreateWindows(RECT position, HWND parent)
+        public static List<ResizeWindow> CreateWindows(RECT position, HWND parent, bool showGlow)
         {
-            if (!isWin8)
-                ExtendGlassFrame(parent);
-
             return new List<ResizeWindow>
             {
-                new(position, parent, Dock.Left),
-                new(position, parent, Dock.Top),
-                new(position, parent, Dock.Right),
-                new(position, parent, Dock.Bottom),
+                new(position, parent, Dock.Left, showGlow),
+                new(position, parent, Dock.Top, showGlow),
+                new(position, parent, Dock.Right, showGlow),
+                new(position, parent, Dock.Bottom, showGlow),
             };
         }
 
@@ -72,22 +59,16 @@ namespace Windows.Shell
                 _ = PInvoke.SetWindowRgn(parent, hRgn, true);
             }
 
+            var showGlow = !windows.First().showGlow;
+
             windows.ForEach(x => x.Close());
             windows.Clear();
-            windows.AddRange(CreateWindows(default, parent));
+            windows.AddRange(CreateWindows(default, parent, showGlow));
             windows.ForEach(x =>
             {
                 x.UpdateGlow(position, isActive);
                 x.Show();
             });
-        }
-
-        private static void ExtendGlassFrame(HWND hwnd)
-        {
-            var margin = new Win32.UI.Controls.MARGINS { cxLeftWidth = 1, cxRightWidth = 1, cyTopHeight = 1, cyBottomHeight = 1 };
-            PInvoke.DwmExtendFrameIntoClientArea(hwnd, margin);
-            var flags = SET_WINDOW_POS_FLAGS.SWP_FRAMECHANGED | SET_WINDOW_POS_FLAGS.SWP_NOSIZE | SET_WINDOW_POS_FLAGS.SWP_NOMOVE | SET_WINDOW_POS_FLAGS.SWP_NOZORDER | SET_WINDOW_POS_FLAGS.SWP_NOOWNERZORDER | SET_WINDOW_POS_FLAGS.SWP_NOACTIVATE;
-            PInvoke.SetWindowPos(hwnd, HWND.Null, 0, 0, 0, 0, flags);
         }
 
         protected override LRESULT WndProc(HWND hwnd, uint msg, WPARAM wParam, LPARAM lParam)
@@ -154,9 +135,8 @@ namespace Windows.Shell
                     break;
             }
 
-            if (!dwmEnabled || isWin8)
+            if (showGlow)
             {
-                //win7 DWM可能被禁用, win8/8.1无边框颜色, 所以启用边框
                 GlowHelper.RenderLayeredWindow(this.Handle, position, _dock, isActive);
             }
 
