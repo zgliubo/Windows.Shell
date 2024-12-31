@@ -16,7 +16,7 @@ namespace Windows.Shell
         private readonly HWND owner;
         private TopDragWindow? topDragWindow;
         private ControlWindow? controlWindow;
-        private List<ResizeWindow>? resizeWindows;
+        private IEnumerable<ResizeBorderWindow>? borderWindows;
         private bool isActive;
         private bool dwmEnabled;
         
@@ -68,15 +68,20 @@ namespace Windows.Shell
             {
                 topDragWindow = new TopDragWindow(default, Handle);
                 controlWindow = new ControlWindow(default, Handle);
+
+                if (!OsVersion.IsWindows11_OrGreater)
+                {
+                    borderWindows = BorderWindow.CreateWindows(default, Handle);
+                }
             }
             else
             {
-                //dwm禁用,win8/8.1没有窗口阴影
+                //win7 dwm禁用时, win8/8.1 没有窗口阴影
                 var isWin8 = OsVersion.IsWindows8OrGreater && !OsVersion.IsWindows10_1507OrGreater;
-                Console.WriteLine(!dwmEnabled || isWin8);
-                resizeWindows = ResizeWindow.CreateWindows(default, Handle, !dwmEnabled || isWin8);
+                borderWindows = ResizeWindow.CreateWindows(default, Handle, !dwmEnabled || isWin8);
                 if (!isWin8 && dwmEnabled)
                 {
+                    //win7 dwm开启时, 启用窗口阴影
                     ExtendGlassFrame(Handle);
                 }
             }
@@ -209,12 +214,12 @@ namespace Windows.Shell
             if (wParam == PInvoke.SIZE_MAXIMIZED)
             {
                 topDragWindow?.Hide();
-                resizeWindows?.ForEach(x => x.Hide());
+                borderWindows?.ToList().ForEach(x => x.Hide());
             }
-            else
+            else if (wParam == PInvoke.SIZE_RESTORED)
             {
                 topDragWindow?.Show();
-                resizeWindows?.ForEach(x => x.Show());
+                borderWindows?.ToList().ForEach(x => x.Show());
             }
 
             if (!dwmEnabled)
@@ -223,7 +228,7 @@ namespace Windows.Shell
                 {
                     _ = PInvoke.SetWindowRgn(hwnd, HRGN.Null, true);
                 }
-                else
+                else if (wParam == PInvoke.SIZE_RESTORED)
                 {
                     var hRgn = PInvoke.CreateRectRgnIndirect(rect);
                     _ = PInvoke.SetWindowRgn(hwnd, hRgn, true);
@@ -234,7 +239,7 @@ namespace Windows.Shell
         private LRESULT WmSetCursor(HWND hwnd, WPARAM wParam, LPARAM lParam, ref bool handled)
         {
             //对于自定义边框, 子窗口为模态框时, 激活闪烁 (需要配合WM_NCACTIVATE)
-            if (resizeWindows != null)
+            if (borderWindows != null)
             {
                 if (PInvoke.PARAM.SignedLOWORD(lParam) == PInvoke.HTERROR && PInvoke.PARAM.SignedHIWORD(lParam) == PInvoke.WM_LBUTTONDOWN)
                 {
@@ -247,7 +252,7 @@ namespace Windows.Shell
 
         private void WmWindowPosChanged(LPARAM lParam)
         {
-            if (resizeWindows != null)
+            if (borderWindows != null)
             {
                 var windowPos = Marshal.PtrToStructure<WINDOWPOS>(lParam);
                 var sizeChanged = (windowPos.flags & SET_WINDOW_POS_FLAGS.SWP_NOSIZE) == 0;
@@ -259,7 +264,7 @@ namespace Windows.Shell
                 if (sizeChanged || posChanged)
                 {
                     PInvoke.GetClientRect(this.Handle, out rect);
-                    resizeWindows.ForEach(x => x.UpdatePosition(rect));
+                    borderWindows.ToList().ForEach(x => x.UpdatePosition(rect));
                 }
             }
         }
@@ -353,10 +358,10 @@ namespace Windows.Shell
         {
             isActive = wParam != 0;
 
-            if (resizeWindows != null)
+            if (borderWindows != null)
             {
                 PInvoke.GetClientRect(hwnd, out var rect);
-                resizeWindows.ForEach(x => x.UpdateGlow(rect, isActive));
+                borderWindows.ToList().ForEach(x => x.UpdatePositionWidthActive(rect, isActive));
             }
         }
 
@@ -365,10 +370,10 @@ namespace Windows.Shell
             PInvoke.DwmIsCompositionEnabled(out var dwmEnabled);
             this.dwmEnabled = dwmEnabled;
 
-            if (resizeWindows != null)
+            if (borderWindows != null && borderWindows is List<ResizeWindow> resizeWindows)
             {
                 PInvoke.GetClientRect(hwnd, out var rect);
-                ResizeWindow.OnDwmChanged(this.resizeWindows, rect, hwnd, dwmEnabled, isActive);
+                ResizeWindow.OnDwmChanged(resizeWindows, rect, hwnd, dwmEnabled, isActive);
                 if (dwmEnabled)
                 {
                     ExtendGlassFrame(hwnd);
@@ -378,10 +383,10 @@ namespace Windows.Shell
 
         private LRESULT WmNcActivate(HWND hwnd, WPARAM wParam, ref bool handled)
         {
-            if (resizeWindows != null)
+            if (borderWindows != null)
             {
                 PInvoke.GetClientRect(hwnd, out var rect);
-                resizeWindows.ForEach(x => x.UpdateGlow(rect, wParam != 0));
+                borderWindows.ToList().ForEach(x => x.UpdatePositionWidthActive(rect, wParam != 0));
 
                 handled = true;
                 return PInvoke.DefWindowProc(hwnd, PInvoke.WM_NCACTIVATE, wParam, -1);
@@ -425,8 +430,8 @@ namespace Windows.Shell
 
         override protected void DisposeManagedResources()
         {
-            resizeWindows?.ForEach(x => x.Close());
-            resizeWindows = null;
+            borderWindows?.ToList().ForEach(x => x.Close());
+            borderWindows = null;
             controlWindow?.Close();
             controlWindow = null;
             topDragWindow?.Close();

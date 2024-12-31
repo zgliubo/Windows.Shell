@@ -25,20 +25,20 @@ namespace Windows.Shell
         private readonly WNDPROC wndProc;
         private readonly bool asChild;
         private readonly bool transparent;
+        private readonly bool layered;
         protected HWND Handle { get; }
         protected HWND ParentHandle { get; }
 
-        public NonClientWindow(RECT position, HWND parent) : this(position, parent, true, true) { }
+        public NonClientWindow(RECT position, HWND parent, WINDOW_EX_STYLE dwExStyle, WINDOW_STYLE dwStyle)
+            : this(position, parent, dwExStyle, dwStyle, false) { }
 
-        public NonClientWindow(RECT position, HWND parent, bool asChild, bool transparent)
+        public NonClientWindow(RECT position, HWND parent, WINDOW_EX_STYLE dwExStyle, WINDOW_STYLE dwStyle, bool setLayered)
         {
-            this.asChild = asChild;
-            this.transparent = transparent;
             wndProc = WndProc;
             ParentHandle = parent;
-            Handle = CreateWindow(position, parent);
+            Handle = CreateWindow(position, parent, dwExStyle, dwStyle);
 
-            if (transparent)
+            if (setLayered)
             {
                 PInvoke.SetLayeredWindowAttributes(Handle, (COLORREF)0, 255, LAYERED_WINDOW_ATTRIBUTES_FLAGS.LWA_ALPHA);
             }
@@ -70,17 +70,9 @@ namespace Windows.Shell
             }
         }
 
-        private unsafe HWND CreateWindow(RECT position, HWND parent)
+        private unsafe HWND CreateWindow(RECT position, HWND parent, WINDOW_EX_STYLE dwExStyle, WINDOW_STYLE dwStyle)
         {
-            
-            var dwExStyle = WINDOW_EX_STYLE.WS_EX_LAYERED;
-            var dwStyle = asChild ? WINDOW_STYLE.WS_CHILD : WINDOW_STYLE.WS_POPUP;
             dwStyle |= WINDOW_STYLE.WS_VISIBLE;
-
-            if (transparent && OsVersion.IsWindows10_1507OrGreater)
-            {
-                dwExStyle |= WINDOW_EX_STYLE.WS_EX_NOREDIRECTIONBITMAP;
-            }
 
             var hwnd = PInvoke.CreateWindowEx(
                  dwExStyle,
