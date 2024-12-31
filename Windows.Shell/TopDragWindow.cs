@@ -13,7 +13,11 @@ namespace Windows.Shell
 {
     class TopDragWindow : NonClientWindow
     {
-        public TopDragWindow(RECT position, HWND parent) : base(position, parent) { }
+        public TopDragWindow(RECT position, HWND parent)
+            : base(position, parent,
+                  WINDOW_EX_STYLE.WS_EX_LAYERED | WINDOW_EX_STYLE.WS_EX_NOREDIRECTIONBITMAP,
+                  WINDOW_STYLE.WS_CHILD, true)
+        { }
 
         protected override LRESULT WndProc(HWND hwnd, uint msg, WPARAM wParam, LPARAM lParam)
         {

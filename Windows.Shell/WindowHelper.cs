@@ -84,5 +84,10 @@ namespace Windows.Shell
 
             return GetDpiForSystem();
         }
+
+        public static COLORREF ColorToCOLORREF(Color color)
+        {
+            return (COLORREF)(uint)((color.B << 16) | (color.G << 8) | color.R);
+        }
     }
 }

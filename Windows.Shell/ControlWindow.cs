@@ -16,12 +16,11 @@ namespace Windows.Shell
         public const int ButtonHeight = 32;
         public const int ButtonWidth = 46;
 
-        public ControlWindow(RECT position, HWND parent) : base(position, parent)
-        {
-            var style = (uint)PInvoke.GetWindowLong(this.Handle, WINDOW_LONG_PTR_INDEX.GWL_STYLE);
-            style |= (uint)WINDOW_STYLE.WS_MINIMIZEBOX;
-            PInvoke.SetWindowLong(this.Handle, WINDOW_LONG_PTR_INDEX.GWL_STYLE, (nint)style);
-        }
+        public ControlWindow(RECT position, HWND parent)
+            : base(position, parent,
+                  WINDOW_EX_STYLE.WS_EX_LAYERED | WINDOW_EX_STYLE.WS_EX_NOREDIRECTIONBITMAP,
+                  WINDOW_STYLE.WS_CHILD | WINDOW_STYLE.WS_MINIMIZEBOX | WINDOW_STYLE.WS_MAXIMIZEBOX, true)
+        { }
 
         protected override LRESULT WndProc(HWND hwnd, uint msg, WPARAM wParam, LPARAM lParam)
         {
@@ -39,7 +38,6 @@ namespace Windows.Shell
                 case PInvoke.WM_NCXBUTTONDBLCLK:
                     //PInvoke.SendMessage(ParentHandle, msg, wParam, 0);
                     return new LRESULT(0);
-
             }
             return base.WndProc(hwnd, msg, wParam, lParam);
         }

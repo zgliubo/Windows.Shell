@@ -29,7 +29,12 @@ namespace Windows.Shell
         /// <summary>
         ///  Is Windows 10 Creators Update or later. (Redstone 4, build 17134, version 1803)
         /// </summary>
-        public static bool IsWindows10_18030rGreater => OperatingSystem.IsWindowsVersionAtLeast(major: 10, build: 17134);
+        public static bool IsWindows10_1803OrGreater => OperatingSystem.IsWindowsVersionAtLeast(major: 10, build: 17134);
+
+        /// <summary>
+        ///  Is Windows 10 Creators Update or later. (build 17763, version 1809)
+        /// </summary>
+        public static bool IsWindows10_1809OrGreater => OperatingSystem.IsWindowsVersionAtLeast(major: 10, build: 17763);
 
         /// <summary>
         ///  Is this Windows 11 public preview or later?

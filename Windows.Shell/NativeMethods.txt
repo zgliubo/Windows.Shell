@@ -3,6 +3,7 @@ ABM_*
 AlphaBlend
 CreateCompatibleDC
 CreateRectRgnIndirect
+CreateSolidBrush
 CreateWindowEx
 CW_USEDEFAULT
 DefWindowProc
@@ -10,8 +11,10 @@ DeleteDC
 DestroyWindow
 DispatchMessage
 DwmExtendFrameIntoClientArea
+DwmGetColorizationColor
 DwmIsCompositionEnabled
 EnableWindow
+FillRect
 GetClientRect
 GetDeviceCaps
 GetDpiForMonitor
@@ -31,6 +34,7 @@ IDC_ARROW
 IDI_APPLICATION
 IsWindow
 IsWindowVisible
+InvalidateRect
 LoadCursor
 LoadMenu
 LoadIcon
@@ -41,6 +45,7 @@ MoveWindow
 PostMessage
 ReleaseCapture
 ReleaseDC
+RegNotifyChangeKeyValue
 RegisterClassEx
 SelectObject
 SendMessage

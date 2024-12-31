@@ -12,7 +12,7 @@ using System.Drawing;
 using System.Diagnostics;
 using System.ComponentModel;
 using System.Runtime.InteropServices;
-using System.Reflection.Metadata;
+using Dock = Windows.Shell.ResizeBorderWindow.Dock;
 
 namespace Windows.Shell
 {
@@ -21,23 +21,23 @@ namespace Windows.Shell
         private static readonly GlowBitmap[] activeGlowBitmaps = new GlowBitmap[8];
         private static readonly GlowBitmap[] inactiveGlowBitmaps = new GlowBitmap[8];
 
-        public static void RenderLayeredWindow(HWND hwnd, RECT rect, ResizeWindow.Dock orientation, bool isActive)
+        public static void RenderLayeredWindow(HWND hwnd, RECT rect, Dock orientation, bool isActive)
         {
             using var glowDrawingContext = new GlowDrawingContext(rect.Width, rect.Height);
             if (glowDrawingContext.IsInitialized)
             {
                 switch (orientation)
                 {
-                    case ResizeWindow.Dock.Left:
+                    case Dock.Left:
                         DrawLeft(glowDrawingContext, isActive);
                         break;
-                    case ResizeWindow.Dock.Top:
+                    case Dock.Top:
                         DrawTop(glowDrawingContext, isActive);
                         break;
-                    case ResizeWindow.Dock.Right:
+                    case Dock.Right:
                         DrawRight(glowDrawingContext, isActive);
                         break;
-                    case ResizeWindow.Dock.Bottom:
+                    case Dock.Bottom:
                         DrawBottom(glowDrawingContext, isActive);
                         break;
                 }
