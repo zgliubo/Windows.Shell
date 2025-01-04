@@ -6,6 +6,7 @@ using Windows.Win32.UI.Shell;
 using System.Runtime.InteropServices;
 using System.ComponentModel;
 using System.Globalization;
+using System.Drawing;
 
 namespace Windows.Shell
 {
@@ -16,14 +17,22 @@ namespace Windows.Shell
         private readonly HWND owner;
         private TopDragWindow? topDragWindow;
         private ControlWindow? controlWindow;
-        private IEnumerable<ResizeBorderWindow>? borderWindows;
+        private List<ResizeBorderWindow>? borderWindows;
         private bool isActive;
         private bool dwmEnabled;
-        
+
+        public static Color ColorizationColor { get; private set; }
+
+        static Window()
+        {
+            GetColorizationColor();
+            Console.WriteLine(ColorizationColor);
+        }
+
         public Window(HWND? owner = null)
         {
             _wndProc = WndProc;
-            className = CreateClassName();
+            className = Guid.NewGuid().ToString();
             RegisterClass(className);
             Handle = CreateWindow(className, owner);
             Init();
@@ -64,47 +73,33 @@ namespace Windows.Shell
             PInvoke.DwmIsCompositionEnabled(out var dwmEnabled);
             this.dwmEnabled = dwmEnabled;
 
-            if (OsVersion.IsWindows10_1507OrGreater)
+            if (OsVersion.IsWindows10_1507OrGreater) //win10及以上
             {
                 topDragWindow = new TopDragWindow(default, Handle);
                 controlWindow = new ControlWindow(default, Handle);
 
-                if (!OsVersion.IsWindows11_OrGreater)
+                if (!OsVersion.IsWindows11_OrGreater) //win10
                 {
-                    borderWindows = BorderWindow.CreateWindows(default, Handle);
+                    borderWindows = ResizeBorderWindow.CreateWindows(default, Handle, ResizeBorderWindow.Mode.Border);
                 }
             }
-            else
+            else // win7 win8/8.1
             {
                 //win7 dwm禁用时, win8/8.1 没有窗口阴影
+
                 var isWin8 = OsVersion.IsWindows8OrGreater && !OsVersion.IsWindows10_1507OrGreater;
-                borderWindows = ResizeWindow.CreateWindows(default, Handle, !dwmEnabled || isWin8);
-                if (!isWin8 && dwmEnabled)
+
+                if (isWin8 || !dwmEnabled)
                 {
-                    //win7 dwm开启时, 启用窗口阴影
-                    ExtendGlassFrame(Handle);
+                    borderWindows = ResizeBorderWindow.CreateWindows(default, Handle, ResizeBorderWindow.Mode.BorderResizeWidthShadow);
                 }
+                else
+                {
+                    borderWindows = ResizeBorderWindow.CreateWindows(default, Handle, ResizeBorderWindow.Mode.BorderResize);
+                }
+
+                UpdateWindowPos(Handle);
             }
-        }
-
-        private static string CreateClassName()
-        {
-            string appName;
-            if (null != AppDomain.CurrentDomain.FriendlyName && 128 <= AppDomain.CurrentDomain.FriendlyName.Length)
-                appName = AppDomain.CurrentDomain.FriendlyName[..128];
-            else
-                appName = AppDomain.CurrentDomain.FriendlyName!;
-
-            string threadName;
-            if (null != Thread.CurrentThread.Name && 64 <= Thread.CurrentThread.Name.Length)
-                threadName = Thread.CurrentThread.Name[..64];
-            else
-                threadName = Thread.CurrentThread.Name!;
-
-            string randomName = Guid.NewGuid().ToString();
-            string className = string.Format(CultureInfo.InvariantCulture, "HwndWrapper[{0};{1};{2}]", appName, threadName, randomName);
-
-            return className;
         }
 
         private unsafe void RegisterClass(string className)
@@ -185,6 +180,9 @@ namespace Windows.Shell
                 case PInvoke.WM_ACTIVATE:
                     WmActivate(hwnd, wParam);
                     break;
+                case PInvoke.WM_DWMCOLORIZATIONCOLORCHANGED:
+                    WmDwmColorizationColorChanged();
+                    break;
             }
 
             if (handled)
@@ -214,12 +212,12 @@ namespace Windows.Shell
             if (wParam == PInvoke.SIZE_MAXIMIZED)
             {
                 topDragWindow?.Hide();
-                borderWindows?.ToList().ForEach(x => x.Hide());
+                borderWindows?.ForEach(x => x.Hide());
             }
             else if (wParam == PInvoke.SIZE_RESTORED)
             {
                 topDragWindow?.Show();
-                borderWindows?.ToList().ForEach(x => x.Show());
+                borderWindows?.ForEach(x => x.Show());
             }
 
             if (!dwmEnabled)
@@ -264,12 +262,12 @@ namespace Windows.Shell
                 if (sizeChanged || posChanged)
                 {
                     PInvoke.GetClientRect(this.Handle, out rect);
-                    borderWindows.ToList().ForEach(x => x.UpdatePosition(rect));
+                    borderWindows.ForEach(x => x.UpdatePosition(rect));
                 }
             }
         }
 
-        private static LRESULT WmNcCalcSize(HWND hwnd, LPARAM lParam, ref bool handled)
+        private LRESULT WmNcCalcSize(HWND hwnd, LPARAM lParam, ref bool handled)
         {
             var placement = default(WINDOWPLACEMENT);
             placement.length = (uint)Marshal.SizeOf(placement);
@@ -306,13 +304,30 @@ namespace Windows.Shell
 
                 Marshal.StructureToPtr(workArea, lParam, true);
             }
-            else if (OsVersion.IsWindows10_1507OrGreater)
+            else
             {
-                var size = WindowHelper.GetWindowBorderSize(WindowHelper.GetDpiForWindow(hwnd));
+                var dpi = WindowHelper.GetDpiForWindow(hwnd);
+                var bw = (int)Math.Round(1.0 * dpi / PInvoke.USER_DEFAULT_SCREEN_DPI);
                 var rect = Marshal.PtrToStructure<RECT>(lParam);
-                rect.left += size.Width;
-                rect.right -= size.Width;
-                rect.bottom -= size.Height;
+              
+                if (OsVersion.IsWindows10_1507OrGreater)
+                {
+                    var size = WindowHelper.GetWindowBorderSize(dpi);
+                    rect.left += size.Width;
+                    rect.right -= size.Width;
+                    rect.bottom -= size.Height;
+                    if (OsVersion.IsWindows11_OrGreater)
+                    {
+                        rect.top += bw;
+                    }
+                }
+                else if(dwmEnabled)
+                {
+                    rect.left += bw;
+                    rect.right -= bw;
+                    rect.bottom -= bw;
+                }
+
                 Marshal.StructureToPtr(rect, lParam, true);
             }
 
@@ -361,7 +376,7 @@ namespace Windows.Shell
             if (borderWindows != null)
             {
                 PInvoke.GetClientRect(hwnd, out var rect);
-                borderWindows.ToList().ForEach(x => x.UpdatePositionWidthActive(rect, isActive));
+                borderWindows.ForEach(x => x.UpdatePositionWidthActive(rect, isActive));
             }
         }
 
@@ -370,14 +385,10 @@ namespace Windows.Shell
             PInvoke.DwmIsCompositionEnabled(out var dwmEnabled);
             this.dwmEnabled = dwmEnabled;
 
-            if (borderWindows != null && borderWindows is List<ResizeWindow> resizeWindows)
+            if (borderWindows != null)
             {
                 PInvoke.GetClientRect(hwnd, out var rect);
-                ResizeWindow.OnDwmChanged(resizeWindows, rect, hwnd, dwmEnabled, isActive);
-                if (dwmEnabled)
-                {
-                    ExtendGlassFrame(hwnd);
-                }
+                ResizeBorderWindow.OnDwmChanged(borderWindows, rect, hwnd, dwmEnabled, isActive);
             }
         }
 
@@ -386,13 +397,25 @@ namespace Windows.Shell
             if (borderWindows != null)
             {
                 PInvoke.GetClientRect(hwnd, out var rect);
-                borderWindows.ToList().ForEach(x => x.UpdatePositionWidthActive(rect, wParam != 0));
+                borderWindows.ForEach(x => x.UpdatePositionWidthActive(rect, wParam != 0));
+            }
 
+            if (!dwmEnabled)
+            {
                 handled = true;
                 return PInvoke.DefWindowProc(hwnd, PInvoke.WM_NCACTIVATE, wParam, -1);
             }
 
             return new LRESULT(0);
+        }
+
+        private void WmDwmColorizationColorChanged()
+        {
+            GetColorizationColor();
+            if (borderWindows != null && GlowHelper.UseDwmColor)
+            {
+                GlowHelper.Restore();
+            }
         }
 
         private void CreateResizibility()
@@ -428,9 +451,29 @@ namespace Windows.Shell
             PInvoke.SetWindowPos(hwnd, HWND.Null, 0, 0, 0, 0, flags);
         }
 
+        private static void UpdateWindowPos(HWND hwnd)
+        {
+            var flags = SET_WINDOW_POS_FLAGS.SWP_FRAMECHANGED | SET_WINDOW_POS_FLAGS.SWP_NOSIZE | SET_WINDOW_POS_FLAGS.SWP_NOMOVE | SET_WINDOW_POS_FLAGS.SWP_NOZORDER | SET_WINDOW_POS_FLAGS.SWP_NOOWNERZORDER | SET_WINDOW_POS_FLAGS.SWP_NOACTIVATE;
+            PInvoke.SetWindowPos(hwnd, HWND.Null, 0, 0, 0, 0, flags);
+        }
+
+        public static void GetColorizationColor()
+        {
+            try
+            {
+                PInvoke.DwmGetColorizationColor(out var color, out _);
+                ColorizationColor = Color.FromArgb(
+                    (byte)((color >> 24) & 0xFF),
+                    (byte)((color >> 16) & 0xFF),
+                    (byte)((color >> 8) & 0xFF),
+                    (byte)(color & 0xFF));
+            }
+            catch { }
+        }
+
         override protected void DisposeManagedResources()
         {
-            borderWindows?.ToList().ForEach(x => x.Close());
+            borderWindows?.ForEach(x => x.Close());
             borderWindows = null;
             controlWindow?.Close();
             controlWindow = null;

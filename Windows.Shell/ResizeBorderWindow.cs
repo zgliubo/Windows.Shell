@@ -17,7 +17,7 @@ using Windows.Win32.System.Registry;
 
 namespace Windows.Shell
 {
-    abstract class ResizeBorderWindow : NonClientWindow
+    class ResizeBorderWindow : NonClientWindow
     {
         public enum Dock
         {
@@ -27,10 +27,73 @@ namespace Windows.Shell
             Bottom
         }
 
-        public ResizeBorderWindow(RECT position, HWND parent, WINDOW_EX_STYLE dwExStyle, WINDOW_STYLE dwStyle, bool setLayered)
-            : base(position, parent, dwExStyle, dwStyle, setLayered) { }
+        public enum Mode
+        {
+            /// <summary>
+            /// 仅边框线
+            /// </summary>
+            Border,
+            /// <summary>
+            /// 仅调整大小(全透明)
+            /// </summary>
+            Resize,
+            /// <summary>
+            ///  边框线和调整大小(Resize部分透明)
+            /// </summary>
+            BorderResize,
+            /// <summary>
+            /// 边框线和调整大小(包含阴影)
+            /// </summary>
+            BorderResizeWidthShadow
+        }
 
-        protected Dock _Dock;
+        public static List<ResizeBorderWindow> CreateWindows(RECT position, HWND parent, Mode mode)
+        {
+            return new List<ResizeBorderWindow>
+            {
+                new(position, parent, Dock.Left, mode),
+                new(position, parent, Dock.Top, mode),
+                new(position, parent, Dock.Right, mode),
+                new(position, parent, Dock.Bottom, mode),
+            };
+        }
+
+        public static void OnDwmChanged(List<ResizeBorderWindow> windows, RECT position, HWND parent, bool dwmEnabled, bool isActive)
+        {
+            if (dwmEnabled)
+            {
+                _ = PInvoke.SetWindowRgn(parent, HRGN.Null, true);
+            }
+            else
+            {
+                var hRgn = PInvoke.CreateRectRgnIndirect(position);
+                _ = PInvoke.SetWindowRgn(parent, hRgn, true);
+            }
+
+            var mode = windows.First()._mode == Mode.BorderResize ? Mode.BorderResizeWidthShadow : Mode.BorderResize;
+
+            windows.ForEach(x => x.Close());
+            windows.Clear();
+            windows.AddRange(CreateWindows(default, parent, mode));
+            windows.ForEach(x =>
+            {
+                x.UpdatePositionWidthActive(position, isActive);
+                x.Show();
+            });
+        }
+
+        private readonly Dock _dock;
+        private readonly Mode _mode;
+        private bool isActive;
+
+        public ResizeBorderWindow(RECT position, HWND parent, Dock dock, Mode mode)
+           : base(position, parent,
+                 WINDOW_EX_STYLE.WS_EX_LAYERED,
+                 WINDOW_STYLE.WS_POPUP, setLayered: mode == Mode.Resize)
+        {
+            _dock = dock;
+            _mode = mode;
+        }
 
         protected override LRESULT WndProc(HWND hwnd, uint msg, WPARAM wParam, LPARAM lParam)
         {
@@ -54,22 +117,17 @@ namespace Windows.Shell
             return base.WndProc(hwnd, msg, wParam, lParam);
         }
 
-        public virtual void UpdatePositionWidthActive(RECT position, bool isActive)
+        public void UpdatePositionWidthActive(RECT position, bool isActive)
         {
-
+            this.isActive = isActive;
+            this.UpdatePosition(position);
         }
 
         public override void UpdatePosition(RECT position)
         {
-            var dpi = WindowHelper.GetDpiForWindow(ParentHandle);
-            var bw = (int)Math.Round(1.0 * dpi / PInvoke.USER_DEFAULT_SCREEN_DPI); //边框线宽度 1px
-            var size = HandlePosition(ref position, bw, dpi);
+            HandlePosition(ref position, out var size, out var lineWidth);
 
-            var ps = new Point[2] { new(position.left, position.top), new(position.right, position.bottom) };
-            PInvoke.MapWindowPoints(ParentHandle, HWND.Null, ps);
-            position = new RECT(ps[0].X, ps[0].Y, ps[1].X, ps[1].Y);
-
-            switch (_Dock)
+            switch (_dock)
             {
                 case Dock.Left:
                     position.left -= size.Width;
@@ -93,19 +151,50 @@ namespace Windows.Shell
                     break;
             }
 
-            OnUpdatedPosition(position);
+            RenderGlow(position, lineWidth);
 
             base.UpdatePosition(position);
         }
 
-        protected virtual Size HandlePosition(ref RECT position, int lineWidth, uint dpi)
+        private void HandlePosition(ref RECT position, out Size size, out int lineWidth)
         {
-            return default;
+            var dpi = WindowHelper.GetDpiForWindow(ParentHandle);
+            var bw = (int)Math.Round(1.0 * dpi / PInvoke.USER_DEFAULT_SCREEN_DPI); //边框线宽度 1px
+
+            lineWidth = bw;
+
+            if (_mode == Mode.Border)
+            {
+                size = new Size(bw, bw);
+            }
+            else
+            {
+                size = WindowHelper.GetWindowBorderSize(dpi);
+            }
+
+            var ps = new Point[2] { new(position.left, position.top), new(position.right, position.bottom) };
+            PInvoke.MapWindowPoints(ParentHandle, HWND.Null, ps);
+            position = new RECT(ps[0].X, ps[0].Y, ps[1].X, ps[1].Y);
         }
 
-        protected virtual void OnUpdatedPosition(RECT position)
+        private void RenderGlow(RECT position, int lineWidth)
         {
-
+            if (_mode == Mode.Resize)
+            {
+                return;
+            }
+            if (_mode == Mode.BorderResizeWidthShadow)
+            {
+                GlowHelper.Render(this.Handle, position, _dock, isActive);
+            }
+            if (_mode == Mode.Border)
+            {
+                GlowHelper.Render(this.Handle, position, _dock, lineWidth, true, isActive);
+            }
+            if (_mode == Mode.BorderResize)
+            {
+                GlowHelper.Render(this.Handle, position, _dock, lineWidth, false, isActive);
+            }
         }
 
         private LRESULT HandleHitTest(HWND hwnd, LPARAM lParam)
@@ -121,7 +210,7 @@ namespace Windows.Shell
             var size = WindowHelper.GetWindowBorderSize(WindowHelper.GetDpiForWindow(ParentHandle));
             PInvoke.GetClientRect(hwnd, out var rect);
 
-            if (_Dock == Dock.Left)
+            if (_dock == Dock.Left)
             {
                 if (pos.Y < size.Height)
                 {
@@ -134,7 +223,7 @@ namespace Windows.Shell
                 return new LRESULT((nint)PInvoke.HTLEFT);
             }
 
-            if (_Dock == Dock.Right)
+            if (_dock == Dock.Right)
             {
                 if (pos.Y < size.Height)
                 {
@@ -147,7 +236,7 @@ namespace Windows.Shell
                 return new LRESULT((nint)PInvoke.HTRIGHT);
             }
 
-            if (_Dock == Dock.Top)
+            if (_dock == Dock.Top)
             {
                 if (pos.X < size.Width * 2)
                 {
@@ -162,7 +251,7 @@ namespace Windows.Shell
                 return new LRESULT((nint)PInvoke.HTTOP);
             }
 
-            if (_Dock == Dock.Bottom)
+            if (_dock == Dock.Bottom)
             {
                 if (pos.X < size.Width * 2)
                 {
