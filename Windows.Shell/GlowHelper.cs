@@ -26,6 +26,8 @@ namespace Windows.Shell
         private static readonly Color activeColor = Color.FromArgb(112, 112, 112);
         private static readonly Color inactiveColor = Color.FromArgb(170, 170, 170);
 
+        private const int ShadowWidth = 7; //不能更改
+
         public static bool UseDwmColor { get; private set; }
 
         static GlowHelper()
@@ -33,14 +35,8 @@ namespace Windows.Shell
             RegNotifyChangeKeyValue();
         }
 
-        public static void Render(HWND hwnd, RECT rect, Dock orientation, int lineWidth, bool onlyLine, bool isActive)
+        public static void RenderOnlyLine(HWND hwnd, RECT rect, Dock orientation, int lineWidth, bool isActive)
         {
-            if (!onlyLine)
-            {
-                Render(hwnd, rect, orientation, lineWidth, isActive);
-                return;
-            }
-
             using var ctx = new GlowDrawingContext(rect.Width, rect.Height);
             if (ctx.IsInitialized)
             {
@@ -72,11 +68,43 @@ namespace Windows.Shell
             }
         }
 
-        private static void Render(HWND hwnd, RECT rect, Dock orientation, int lineWidth,  bool isActive)
+        private static void DrawBorderLine(GlowDrawingContext ctx, Dock orientation, int lineWidth, bool isActive)
+        {
+            var width = 0;
+            var height = 0;
+            var left = 0;
+            var top = 0;
+
+            switch (orientation)
+            {
+                case Dock.Left:
+                case Dock.Right:
+                    width = lineWidth;
+                    height = ctx.Height;
+                    left = orientation == Dock.Right ? 0 : ctx.Width - lineWidth;
+                    break;
+                case Dock.Top:
+                case Dock.Bottom:
+                    var diff = ctx.Height - lineWidth;
+                    width = ctx.Width - 2 * diff;
+                    height = lineWidth;
+                    top = orientation == Dock.Bottom ? 0 : ctx.Height - lineWidth;
+                    left = diff;
+                    break;
+            }
+
+            var img = GetOrCreateBitmap(ctx, GlowBitmapPart.Pixel, isActive);
+            PInvoke.SelectObject(ctx.BackgroundDC, (HGDIOBJ)img.Handle);
+            PInvoke.AlphaBlend(ctx.WindowDC, left, top, width, height, ctx.BackgroundDC, 0, 0, img.Width, img.Height, ctx.Blend);
+        }
+
+        public static void RenderWithResize(HWND hwnd, RECT rect, Dock orientation, int lineWidth, bool isActive)
         {
             using var ctx = new GlowDrawingContext(rect.Width, rect.Height);
             if (ctx.IsInitialized)
             {
+                DrawBorderLine(ctx, orientation, lineWidth, isActive);
+
                 var width = 0;
                 var height = 0;
                 var left = 0;
@@ -86,43 +114,19 @@ namespace Windows.Shell
                 {
                     case Dock.Left:
                     case Dock.Right:
-                        width = lineWidth;
-                        height = ctx.Height;
-                        left = orientation == Dock.Right ? 0 : ctx.Width - lineWidth;
-                        break;
-                    case Dock.Top:
-                    case Dock.Bottom:
-                        var diff = ctx.Height - lineWidth;
-                        width = ctx.Width - 2 * diff;
-                        height = lineWidth;
-                        top = orientation == Dock.Bottom ? 0 : ctx.Height - lineWidth;
-                        left = diff;
-                        break;
-                }
-
-                var img = GetOrCreateBitmap(ctx, GlowBitmapPart.Pixel, isActive);
-                PInvoke.SelectObject(ctx.BackgroundDC, (HGDIOBJ)img.Handle);
-                PInvoke.AlphaBlend(ctx.WindowDC, left, top, width, height, ctx.BackgroundDC, 0, 0, img.Width, img.Height, ctx.Blend);
-
-                switch (orientation)
-                {
-                    case Dock.Left:
-                    case Dock.Right:
                         width = ctx.Width - lineWidth;
                         height = ctx.Height;
                         left = orientation == Dock.Left ? 0 : lineWidth;
-                        top = 0;
                         break;
                     case Dock.Top:
                     case Dock.Bottom:
                         width = ctx.Width;
                         height = ctx.Height - lineWidth;
-                        left = 0;
                         top = orientation == Dock.Top ? 0 : lineWidth;
                         break;
                 }
 
-                img = GetOrCreateBitmap(ctx, GlowBitmapPart.PixelEmpty, isActive);
+                var img = GetOrCreateBitmap(ctx, GlowBitmapPart.PixelEmpty, isActive);
                 PInvoke.SelectObject(ctx.BackgroundDC, (HGDIOBJ)img.Handle);
                 PInvoke.AlphaBlend(ctx.WindowDC, left, top, width, height, ctx.BackgroundDC, 0, 0, img.Width, img.Height, ctx.Blend);
 
@@ -133,110 +137,96 @@ namespace Windows.Shell
             }
         }
 
-        public static void Render(HWND hwnd, RECT rect, Dock orientation, bool isActive)
+        public static void RenderWithShadow(HWND hwnd, RECT rect, Dock orientation, int lineWidth, bool isActive)
         {
-            using var glowDrawingContext = new GlowDrawingContext(rect.Width, rect.Height);
-            if (glowDrawingContext.IsInitialized)
+            using var ctx = new GlowDrawingContext(rect.Width, rect.Height);
+            if (ctx.IsInitialized)
             {
+                DrawBorderLine(ctx, orientation, lineWidth, isActive);
+
                 switch (orientation)
                 {
                     case Dock.Left:
-                        DrawLeft(glowDrawingContext, isActive);
+                        DrawLeftShadow(ctx, isActive, lineWidth);
                         break;
                     case Dock.Top:
-                        DrawTop(glowDrawingContext, isActive);
+                        DrawTopShadow(ctx, isActive, lineWidth);
                         break;
                     case Dock.Right:
-                        DrawRight(glowDrawingContext, isActive);
+                        DrawRightShadow(ctx, isActive, lineWidth);
                         break;
                     case Dock.Bottom:
-                        DrawBottom(glowDrawingContext, isActive);
+                        DrawBottomShadow(ctx, isActive, lineWidth);
                         break;
                 }
 
                 var pptDest = new Point(rect.left, rect.top);
                 var psize = new SIZE(rect.Width, rect.Height);
                 var pptSrc = new Point(0, 0);
-                PInvoke.UpdateLayeredWindow(hwnd, glowDrawingContext.ScreenDC, pptDest, psize, glowDrawingContext.WindowDC, pptSrc, (COLORREF)0u, glowDrawingContext.Blend, UPDATE_LAYERED_WINDOW_FLAGS.ULW_ALPHA);
+                PInvoke.UpdateLayeredWindow(hwnd, ctx.ScreenDC, pptDest, psize, ctx.WindowDC, pptSrc, (COLORREF)0u, ctx.Blend, UPDATE_LAYERED_WINDOW_FLAGS.ULW_ALPHA);
             }
         }
 
-        private static void DrawLeft(GlowDrawingContext ctx, bool isActive)
+        private static void DrawLeftShadow(GlowDrawingContext ctx, bool isActive, int lineWidth)
         {
-            var ox = 0;
-            var ow = 9;
-            if (ctx.Width < 9)
-            {
-                ox = 9 - ctx.Width;
-                ow = ctx.Width;
-            }
-
             var img = GetOrCreateBitmap(ctx, GlowBitmapPart.Left, isActive);
             PInvoke.SelectObject(ctx.BackgroundDC, (HGDIOBJ)img.Handle);
-            PInvoke.AlphaBlend(ctx.WindowDC, 0, 0, ctx.Width, ctx.Height, ctx.BackgroundDC, ox, 0, ow, img.Height, ctx.Blend);
+            PInvoke.AlphaBlend(ctx.WindowDC, 0, 0, ctx.Width - lineWidth, ctx.Height, ctx.BackgroundDC, 0, 0, img.Width, img.Height, ctx.Blend);
         }
 
-        private static void DrawTop(GlowDrawingContext ctx, bool isActive)
+        private static void DrawTopShadow(GlowDrawingContext ctx, bool isActive, int lineWidth)
         {
-            var size = ctx.Height;
-            var oy = 0;
-            var oh = 9;
-            if (ctx.Height < 9)
-            {
-                oy = 9 - ctx.Height;
-                oh = ctx.Height;
-            }
-
+            var size = ctx.Height - lineWidth;
             var img = GetOrCreateBitmap(ctx, GlowBitmapPart.Top, isActive);
             PInvoke.SelectObject(ctx.BackgroundDC, (HGDIOBJ)img.Handle);
-            PInvoke.AlphaBlend(ctx.WindowDC, size, 0, ctx.Width - 2 * size, ctx.Height, ctx.BackgroundDC, 0, oy, img.Width, oh, ctx.Blend);
+            PInvoke.AlphaBlend(ctx.WindowDC, size, 0, ctx.Width - 2 * size, size, ctx.BackgroundDC, 0, 0, img.Width, img.Height, ctx.Blend);
 
             img = GetOrCreateBitmap(ctx, GlowBitmapPart.LeftTop, isActive);
             PInvoke.SelectObject(ctx.BackgroundDC, (HGDIOBJ)img.Handle);
-            PInvoke.AlphaBlend(ctx.WindowDC, 0, 0, size, size, ctx.BackgroundDC, oy, oy, oh, oh, ctx.Blend);
+            PInvoke.AlphaBlend(ctx.WindowDC, 0, 0, size, size, ctx.BackgroundDC, 0, 0, img.Width, img.Height, ctx.Blend);
 
             img = GetOrCreateBitmap(ctx, GlowBitmapPart.RightTop, isActive);
             PInvoke.SelectObject(ctx.BackgroundDC, (HGDIOBJ)img.Handle);
-            PInvoke.AlphaBlend(ctx.WindowDC, ctx.Width - size, 0, size, size, ctx.BackgroundDC, 0, oy, oh, oh, ctx.Blend);
+            PInvoke.AlphaBlend(ctx.WindowDC, ctx.Width - size, 0, size, size, ctx.BackgroundDC, 0, 0, img.Width, img.Height, ctx.Blend);
+
+            img = GetOrCreateBitmap(ctx, GlowBitmapPart.Left, isActive);
+            PInvoke.SelectObject(ctx.BackgroundDC, (HGDIOBJ)img.Handle);
+            PInvoke.AlphaBlend(ctx.WindowDC, 0, size, size, lineWidth, ctx.BackgroundDC, 0, 0, img.Width, img.Height, ctx.Blend);
+
+            img = GetOrCreateBitmap(ctx, GlowBitmapPart.Right, isActive);
+            PInvoke.SelectObject(ctx.BackgroundDC, (HGDIOBJ)img.Handle);
+            PInvoke.AlphaBlend(ctx.WindowDC, ctx.Width - size, size, size, lineWidth, ctx.BackgroundDC, 0, 0, img.Width, img.Height, ctx.Blend);
         }
 
-        private static void DrawRight(GlowDrawingContext ctx, bool isActive)
+        private static void DrawRightShadow(GlowDrawingContext ctx, bool isActive, int lineWidth)
         {
-            //var ox = 0;
-            var ow = 9;
-            if (ctx.Width < 9)
-            {
-                //ox = 9 - ctx.Width;
-                ow = ctx.Width;
-            }
-
             var img = GetOrCreateBitmap(ctx, GlowBitmapPart.Right, isActive);
             PInvoke.SelectObject(ctx.BackgroundDC, (HGDIOBJ)img.Handle);
-            PInvoke.AlphaBlend(ctx.WindowDC, 0, 0, ctx.Width, ctx.Height, ctx.BackgroundDC, 0, 0, ow, img.Height, ctx.Blend);
+            PInvoke.AlphaBlend(ctx.WindowDC, lineWidth, 0, ctx.Width - lineWidth, ctx.Height, ctx.BackgroundDC, 0, 0, img.Width, img.Height, ctx.Blend);
         }
 
-        private static void DrawBottom(GlowDrawingContext ctx, bool isActive)
+        private static void DrawBottomShadow(GlowDrawingContext ctx, bool isActive, int lineWidth)
         {
-            var size = ctx.Height;
-            var oy = 0;
-            var oh = 9;
-            if (ctx.Height < 9)
-            {
-                oy = 9 - ctx.Height;
-                oh = ctx.Height;
-            }
-
+            var size = ctx.Height - lineWidth;
             var img = GetOrCreateBitmap(ctx, GlowBitmapPart.Bottom, isActive);
             PInvoke.SelectObject(ctx.BackgroundDC, (HGDIOBJ)img.Handle);
-            PInvoke.AlphaBlend(ctx.WindowDC, size, 0, ctx.Width - 2 * size, ctx.Height, ctx.BackgroundDC, 0, 0, img.Width, oh, ctx.Blend);
+            PInvoke.AlphaBlend(ctx.WindowDC, size, 0, ctx.Width - 2 * size, size, ctx.BackgroundDC, 0, 0, img.Width, img.Height, ctx.Blend);
 
             img = GetOrCreateBitmap(ctx, GlowBitmapPart.LeftBottom, isActive);
             PInvoke.SelectObject(ctx.BackgroundDC, (HGDIOBJ)img.Handle);
-            PInvoke.AlphaBlend(ctx.WindowDC, 0, 0, size, size, ctx.BackgroundDC, oy, 0, oh, oh, ctx.Blend);
+            PInvoke.AlphaBlend(ctx.WindowDC, 0, lineWidth, size, size, ctx.BackgroundDC, 0, 0, img.Width, img.Height, ctx.Blend);
 
             img = GetOrCreateBitmap(ctx, GlowBitmapPart.RightBottom, isActive);
             PInvoke.SelectObject(ctx.BackgroundDC, (HGDIOBJ)img.Handle);
-            PInvoke.AlphaBlend(ctx.WindowDC, ctx.Width - size, 0, size, size, ctx.BackgroundDC, 0, 0, oh, oh, ctx.Blend);
+            PInvoke.AlphaBlend(ctx.WindowDC, ctx.Width - size, lineWidth, size, size, ctx.BackgroundDC, 0, 0, img.Width, img.Height, ctx.Blend);
+
+            img = GetOrCreateBitmap(ctx, GlowBitmapPart.Left, isActive);
+            PInvoke.SelectObject(ctx.BackgroundDC, (HGDIOBJ)img.Handle);
+            PInvoke.AlphaBlend(ctx.WindowDC, 0, 0, size, lineWidth, ctx.BackgroundDC, 0, 0, img.Width, img.Height, ctx.Blend);
+
+            img = GetOrCreateBitmap(ctx, GlowBitmapPart.Right, isActive);
+            PInvoke.SelectObject(ctx.BackgroundDC, (HGDIOBJ)img.Handle);
+            PInvoke.AlphaBlend(ctx.WindowDC, ctx.Width - size, 0, size, lineWidth, ctx.BackgroundDC, 0, 0, img.Width, img.Height, ctx.Blend);
         }
 
         private static GlowBitmap GetOrCreateBitmap(GlowDrawingContext drawingContext, GlowBitmapPart bitmapPart, bool isActive)
@@ -417,23 +407,23 @@ namespace Windows.Shell
                 switch (bitmapPart)
                 {
                     case GlowBitmapPart.Left:
-                        return new(new byte[] { 131, 131, 131, 2, 131, 131, 131, 5, 131, 131, 131, 8, 131, 131, 131, 11, 131, 131, 131, 19, 131, 131, 131, 30, 131, 131, 131, 46, 131, 131, 131, 65, 0, 0, 0, 254 }, 9, 1);
+                        return new(new byte[] { 0, 0, 0, 2, 0, 0, 0, 5, 0, 0, 0, 10, 0, 0, 0, 19, 0, 0, 0, 34, 0, 0, 0, 52, 0, 0, 0, 64 }, ShadowWidth, 1);
                     case GlowBitmapPart.Top:
-                        return new(new byte[] { 131, 131, 131, 2, 131, 131, 131, 5, 131, 131, 131, 8, 131, 131, 131, 11, 131, 131, 131, 19, 131, 131, 131, 30, 131, 131, 131, 46, 131, 131, 131, 65, 0, 0, 0, 254 }, 1, 9);
+                        return new(new byte[] { 0, 0, 0, 2, 0, 0, 0, 5, 0, 0, 0, 10, 0, 0, 0, 19, 0, 0, 0, 34, 0, 0, 0, 52, 0, 0, 0, 64 }, 1, ShadowWidth);
                     case GlowBitmapPart.Right:
-                        return new(new byte[] { 0, 0, 0, 254, 131, 131, 131, 65, 131, 131, 131, 46, 131, 131, 131, 30, 131, 131, 131, 19, 131, 131, 131, 11, 131, 131, 131, 8, 131, 131, 131, 5, 131, 131, 131, 2 }, 9, 1);
+                        return new(new byte[] { 0, 0, 0, 64, 0, 0, 0, 52, 0, 0, 0, 34, 0, 0, 0, 19, 0, 0, 0, 10, 0, 0, 0, 5, 0, 0, 0, 2 }, ShadowWidth, 1);
                     case GlowBitmapPart.Bottom:
-                        return new(new byte[] { 0, 0, 0, 254, 131, 131, 131, 65, 131, 131, 131, 46, 131, 131, 131, 30, 131, 131, 131, 19, 131, 131, 131, 11, 131, 131, 131, 8, 131, 131, 131, 5, 131, 131, 131, 2 }, 1, 9);
+                        return new(new byte[] { 0, 0, 0, 64, 0, 0, 0, 52, 0, 0, 0, 34, 0, 0, 0, 19, 0, 0, 0, 10, 0, 0, 0, 5, 0, 0, 0, 2 }, 1, ShadowWidth);
                     case GlowBitmapPart.LeftTop:
-                        return new(new byte[] { 131, 131, 131, 0, 131, 131, 131, 0, 131, 131, 131, 0, 131, 131, 131, 0, 131, 131, 131, 0, 131, 131, 131, 1, 131, 131, 131, 1, 131, 131, 131, 1, 131, 131, 131, 1, 131, 131, 131, 0, 131, 131, 131, 0, 131, 131, 131, 0, 131, 131, 131, 1, 131, 131, 131, 1, 131, 131, 131, 1, 131, 131, 131, 2, 131, 131, 131, 2, 131, 131, 131, 2, 131, 131, 131, 0, 131, 131, 131, 0, 131, 131, 131, 1, 131, 131, 131, 1, 131, 131, 131, 2, 131, 131, 131, 2, 131, 131, 131, 3, 131, 131, 131, 3, 131, 131, 131, 4, 131, 131, 131, 0, 131, 131, 131, 1, 131, 131, 131, 1, 131, 131, 131, 2, 131, 131, 131, 2, 131, 131, 131, 3, 131, 131, 131, 4, 131, 131, 131, 5, 131, 131, 131, 6, 131, 131, 131, 0, 131, 131, 131, 1, 131, 131, 131, 2, 131, 131, 131, 2, 131, 131, 131, 3, 131, 131, 131, 4, 131, 131, 131, 7, 131, 131, 131, 8, 131, 131, 131, 11, 131, 131, 131, 0, 131, 131, 131, 1, 131, 131, 131, 2, 131, 131, 131, 3, 131, 131, 131, 4, 131, 131, 131, 7, 131, 131, 131, 10, 131, 131, 131, 13, 131, 131, 131, 18, 131, 131, 131, 1, 131, 131, 131, 2, 131, 131, 131, 3, 131, 131, 131, 4, 131, 131, 131, 7, 131, 131, 131, 10, 131, 131, 131, 15, 131, 131, 131, 20, 131, 131, 131, 27, 131, 131, 131, 1, 131, 131, 131, 2, 131, 131, 131, 3, 131, 131, 131, 5, 131, 131, 131, 8, 131, 131, 131, 13, 131, 131, 131, 20, 131, 131, 131, 28, 131, 131, 131, 38, 131, 131, 131, 1, 131, 131, 131, 2, 131, 131, 131, 4, 131, 131, 131, 6, 131, 131, 131, 11, 131, 131, 131, 18, 131, 131, 131, 27, 131, 131, 131, 38, 0, 0, 0, 255 }, 9, 9);
+                        return new(new byte[] { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 2, 0, 0, 0, 3, 0, 0, 0, 4, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 2, 0, 0, 0, 4, 0, 0, 0, 6, 0, 0, 0, 7, 0, 0, 0, 9, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 4, 0, 0, 0, 7, 0, 0, 0, 10, 0, 0, 0, 15, 0, 0, 0, 18, 0, 0, 0, 1, 0, 0, 0, 3, 0, 0, 0, 6, 0, 0, 0, 10, 0, 0, 0, 18, 0, 0, 0, 25, 0, 0, 0, 31, 0, 0, 0, 1, 0, 0, 0, 4, 0, 0, 0, 7, 0, 0, 0, 15, 0, 0, 0, 25, 0, 0, 0, 38, 0, 0, 0, 48, 0, 0, 0, 2, 0, 0, 0, 4, 0, 0, 0, 9, 0, 0, 0, 18, 0, 0, 0, 31, 0, 0, 0, 48, 0, 0, 0, 61 }, ShadowWidth, ShadowWidth);
                     case GlowBitmapPart.RightTop:
-                        return new(new byte[] { 131, 131, 131, 1, 131, 131, 131, 1, 131, 131, 131, 1, 131, 131, 131, 1, 131, 131, 131, 0, 131, 131, 131, 0, 131, 131, 131, 0, 131, 131, 131, 0, 131, 131, 131, 0, 131, 131, 131, 2, 131, 131, 131, 2, 131, 131, 131, 2, 131, 131, 131, 1, 131, 131, 131, 1, 131, 131, 131, 1, 131, 131, 131, 0, 131, 131, 131, 0, 131, 131, 131, 0, 131, 131, 131, 4, 131, 131, 131, 3, 131, 131, 131, 3, 131, 131, 131, 2, 131, 131, 131, 2, 131, 131, 131, 1, 131, 131, 131, 1, 131, 131, 131, 0, 131, 131, 131, 0, 131, 131, 131, 6, 131, 131, 131, 5, 131, 131, 131, 4, 131, 131, 131, 3, 131, 131, 131, 2, 131, 131, 131, 2, 131, 131, 131, 1, 131, 131, 131, 1, 131, 131, 131, 0, 131, 131, 131, 11, 131, 131, 131, 8, 131, 131, 131, 7, 131, 131, 131, 4, 131, 131, 131, 3, 131, 131, 131, 2, 131, 131, 131, 2, 131, 131, 131, 1, 131, 131, 131, 0, 131, 131, 131, 18, 131, 131, 131, 13, 131, 131, 131, 10, 131, 131, 131, 7, 131, 131, 131, 4, 131, 131, 131, 3, 131, 131, 131, 2, 131, 131, 131, 1, 131, 131, 131, 0, 131, 131, 131, 27, 131, 131, 131, 20, 131, 131, 131, 15, 131, 131, 131, 10, 131, 131, 131, 7, 131, 131, 131, 4, 131, 131, 131, 3, 131, 131, 131, 2, 131, 131, 131, 1, 131, 131, 131, 38, 131, 131, 131, 28, 131, 131, 131, 20, 131, 131, 131, 13, 131, 131, 131, 8, 131, 131, 131, 5, 131, 131, 131, 3, 131, 131, 131, 2, 131, 131, 131, 1, 0, 0, 0, 255, 131, 131, 131, 38, 131, 131, 131, 27, 131, 131, 131, 18, 131, 131, 131, 11, 131, 131, 131, 6, 131, 131, 131, 4, 131, 131, 131, 2, 131, 131, 131, 1 }, 9, 9);
+                        return new(new byte[] { 0, 0, 0, 2, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 4, 0, 0, 0, 3, 0, 0, 0, 2, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 9, 0, 0, 0, 7, 0, 0, 0, 6, 0, 0, 0, 4, 0, 0, 0, 2, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 18, 0, 0, 0, 15, 0, 0, 0, 10, 0, 0, 0, 7, 0, 0, 0, 4, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 31, 0, 0, 0, 25, 0, 0, 0, 18, 0, 0, 0, 10, 0, 0, 0, 6, 0, 0, 0, 3, 0, 0, 0, 1, 0, 0, 0, 48, 0, 0, 0, 38, 0, 0, 0, 25, 0, 0, 0, 15, 0, 0, 0, 7, 0, 0, 0, 4, 0, 0, 0, 1, 0, 0, 0, 61, 0, 0, 0, 48, 0, 0, 0, 31, 0, 0, 0, 18, 0, 0, 0, 9, 0, 0, 0, 4, 0, 0, 0, 2 }, ShadowWidth, ShadowWidth);
                     case GlowBitmapPart.RightBottom:
-                        return new(new byte[] { 0, 0, 0, 255, 131, 131, 131, 38, 131, 131, 131, 27, 131, 131, 131, 18, 131, 131, 131, 11, 131, 131, 131, 6, 131, 131, 131, 4, 131, 131, 131, 2, 131, 131, 131, 1, 131, 131, 131, 38, 131, 131, 131, 28, 131, 131, 131, 20, 131, 131, 131, 13, 131, 131, 131, 8, 131, 131, 131, 5, 131, 131, 131, 3, 131, 131, 131, 2, 131, 131, 131, 1, 131, 131, 131, 27, 131, 131, 131, 20, 131, 131, 131, 15, 131, 131, 131, 10, 131, 131, 131, 7, 131, 131, 131, 4, 131, 131, 131, 3, 131, 131, 131, 2, 131, 131, 131, 1, 131, 131, 131, 18, 131, 131, 131, 13, 131, 131, 131, 10, 131, 131, 131, 7, 131, 131, 131, 4, 131, 131, 131, 3, 131, 131, 131, 2, 131, 131, 131, 1, 131, 131, 131, 0, 131, 131, 131, 11, 131, 131, 131, 8, 131, 131, 131, 7, 131, 131, 131, 4, 131, 131, 131, 3, 131, 131, 131, 2, 131, 131, 131, 2, 131, 131, 131, 1, 131, 131, 131, 0, 131, 131, 131, 6, 131, 131, 131, 5, 131, 131, 131, 4, 131, 131, 131, 3, 131, 131, 131, 2, 131, 131, 131, 2, 131, 131, 131, 1, 131, 131, 131, 1, 131, 131, 131, 0, 131, 131, 131, 4, 131, 131, 131, 3, 131, 131, 131, 3, 131, 131, 131, 2, 131, 131, 131, 2, 131, 131, 131, 1, 131, 131, 131, 1, 131, 131, 131, 0, 131, 131, 131, 0, 131, 131, 131, 2, 131, 131, 131, 2, 131, 131, 131, 2, 131, 131, 131, 1, 131, 131, 131, 1, 131, 131, 131, 1, 131, 131, 131, 0, 131, 131, 131, 0, 131, 131, 131, 0, 131, 131, 131, 1, 131, 131, 131, 1, 131, 131, 131, 1, 131, 131, 131, 1, 131, 131, 131, 0, 131, 131, 131, 0, 131, 131, 131, 0, 131, 131, 131, 0, 131, 131, 131, 0 }, 9, 9);
+                        return new(new byte[] { 0, 0, 0, 61, 0, 0, 0, 48, 0, 0, 0, 31, 0, 0, 0, 18, 0, 0, 0, 9, 0, 0, 0, 4, 0, 0, 0, 2, 0, 0, 0, 48, 0, 0, 0, 38, 0, 0, 0, 25, 0, 0, 0, 15, 0, 0, 0, 7, 0, 0, 0, 4, 0, 0, 0, 1, 0, 0, 0, 31, 0, 0, 0, 25, 0, 0, 0, 18, 0, 0, 0, 10, 0, 0, 0, 6, 0, 0, 0, 3, 0, 0, 0, 1, 0, 0, 0, 18, 0, 0, 0, 15, 0, 0, 0, 10, 0, 0, 0, 7, 0, 0, 0, 4, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 9, 0, 0, 0, 7, 0, 0, 0, 6, 0, 0, 0, 4, 0, 0, 0, 2, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 4, 0, 0, 0, 3, 0, 0, 0, 2, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 }, ShadowWidth, ShadowWidth);
                     case GlowBitmapPart.LeftBottom:
-                        return new(new byte[] { 131, 131, 131, 1, 131, 131, 131, 2, 131, 131, 131, 4, 131, 131, 131, 6, 131, 131, 131, 11, 131, 131, 131, 18, 131, 131, 131, 27, 131, 131, 131, 38, 0, 0, 0, 255, 131, 131, 131, 1, 131, 131, 131, 2, 131, 131, 131, 3, 131, 131, 131, 5, 131, 131, 131, 8, 131, 131, 131, 13, 131, 131, 131, 20, 131, 131, 131, 28, 131, 131, 131, 38, 131, 131, 131, 1, 131, 131, 131, 2, 131, 131, 131, 3, 131, 131, 131, 4, 131, 131, 131, 7, 131, 131, 131, 10, 131, 131, 131, 15, 131, 131, 131, 20, 131, 131, 131, 27, 131, 131, 131, 0, 131, 131, 131, 1, 131, 131, 131, 2, 131, 131, 131, 3, 131, 131, 131, 4, 131, 131, 131, 7, 131, 131, 131, 10, 131, 131, 131, 13, 131, 131, 131, 18, 131, 131, 131, 0, 131, 131, 131, 1, 131, 131, 131, 2, 131, 131, 131, 2, 131, 131, 131, 3, 131, 131, 131, 4, 131, 131, 131, 7, 131, 131, 131, 8, 131, 131, 131, 11, 131, 131, 131, 0, 131, 131, 131, 1, 131, 131, 131, 1, 131, 131, 131, 2, 131, 131, 131, 2, 131, 131, 131, 3, 131, 131, 131, 4, 131, 131, 131, 5, 131, 131, 131, 6, 131, 131, 131, 0, 131, 131, 131, 0, 131, 131, 131, 1, 131, 131, 131, 1, 131, 131, 131, 2, 131, 131, 131, 2, 131, 131, 131, 3, 131, 131, 131, 3, 131, 131, 131, 4, 131, 131, 131, 0, 131, 131, 131, 0, 131, 131, 131, 0, 131, 131, 131, 1, 131, 131, 131, 1, 131, 131, 131, 1, 131, 131, 131, 2, 131, 131, 131, 2, 131, 131, 131, 2, 131, 131, 131, 0, 131, 131, 131, 0, 131, 131, 131, 0, 131, 131, 131, 0, 131, 131, 131, 0, 131, 131, 131, 1, 131, 131, 131, 1, 131, 131, 131, 1, 131, 131, 131, 1 }, 9, 9);
+                        return new(new byte[] { 0, 0, 0, 2, 0, 0, 0, 4, 0, 0, 0, 9, 0, 0, 0, 18, 0, 0, 0, 31, 0, 0, 0, 48, 0, 0, 0, 61, 0, 0, 0, 1, 0, 0, 0, 4, 0, 0, 0, 7, 0, 0, 0, 15, 0, 0, 0, 25, 0, 0, 0, 38, 0, 0, 0, 48, 0, 0, 0, 1, 0, 0, 0, 3, 0, 0, 0, 6, 0, 0, 0, 10, 0, 0, 0, 18, 0, 0, 0, 25, 0, 0, 0, 31, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 4, 0, 0, 0, 7, 0, 0, 0, 10, 0, 0, 0, 15, 0, 0, 0, 18, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 2, 0, 0, 0, 4, 0, 0, 0, 6, 0, 0, 0, 7, 0, 0, 0, 9, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 2, 0, 0, 0, 3, 0, 0, 0, 4, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 2 }, ShadowWidth, ShadowWidth);
                     case GlowBitmapPart.Pixel:
-                        return new(new byte[] { 0, 0, 0, 254 }, 1, 1);
+                        return new(new byte[] { 0, 0, 0, 255 }, 1, 1);
                     case GlowBitmapPart.PixelEmpty:
                         return new(new byte[] { 0, 0, 0, 1 }, 1, 1);
                     default:
