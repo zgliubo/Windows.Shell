@@ -185,15 +185,15 @@ namespace Windows.Shell
             }
             if (_mode == Mode.BorderResizeWidthShadow)
             {
-                GlowHelper.Render(this.Handle, position, _dock, isActive);
+                GlowHelper.RenderWithShadow(this.Handle, position, _dock, lineWidth, isActive);
             }
             if (_mode == Mode.Border)
             {
-                GlowHelper.Render(this.Handle, position, _dock, lineWidth, true, isActive);
+                GlowHelper.RenderOnlyLine(this.Handle, position, _dock, lineWidth, isActive);
             }
             if (_mode == Mode.BorderResize)
             {
-                GlowHelper.Render(this.Handle, position, _dock, lineWidth, false, isActive);
+                GlowHelper.RenderWithResize(this.Handle, position, _dock, lineWidth, isActive);
             }
         }
 
