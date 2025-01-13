@@ -12,7 +12,7 @@ using System.Drawing;
 using System.Diagnostics;
 using System.ComponentModel;
 using System.Runtime.InteropServices;
-using Dock = Windows.Shell.ResizeBorderWindow.Dock;
+using Dock = Windows.Shell.WindowEdge.Dock;
 using Microsoft.Win32;
 using Windows.Win32.System.Registry;
 

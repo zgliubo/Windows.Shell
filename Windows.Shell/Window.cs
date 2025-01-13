@@ -7,6 +7,7 @@ using System.Runtime.InteropServices;
 using System.ComponentModel;
 using System.Globalization;
 using System.Drawing;
+using EdgeMode = Windows.Shell.WindowEdge.EdgeMode;
 
 namespace Windows.Shell
 {
@@ -17,7 +18,7 @@ namespace Windows.Shell
         private readonly HWND owner;
         private TopDragWindow? topDragWindow;
         private ControlWindow? controlWindow;
-        private List<ResizeBorderWindow>? borderWindows;
+        private WindowEdge? windowEdge;
         private bool isActive;
         private bool dwmEnabled;
 
@@ -80,22 +81,25 @@ namespace Windows.Shell
 
                 if (!OsVersion.IsWindows11_OrGreater) //win10
                 {
-                    borderWindows = ResizeBorderWindow.CreateWindows(default, Handle, ResizeBorderWindow.Mode.Border);
+                    windowEdge = new WindowEdge(default, Handle, EdgeMode.Border);
                 }
             }
-            else // win7 win8/8.1
+            else 
             {
-                //win7 dwm禁用时, win8/8.1 没有窗口阴影
-
-                var isWin8 = OsVersion.IsWindows8OrGreater && !OsVersion.IsWindows10_1507OrGreater;
-
-                if (isWin8 || !dwmEnabled)
+                if (OsVersion.IsWindows8OrGreater && !OsVersion.IsWindows10_1507OrGreater)
                 {
-                    borderWindows = ResizeBorderWindow.CreateWindows(default, Handle, ResizeBorderWindow.Mode.BorderResizeWidthShadow);
+                    //win8 win8.1
+                    windowEdge = new WindowEdge(default, Handle, EdgeMode.BorderResizeWidthShadow);
+                }
+                else if (dwmEnabled)
+                {
+                    //win7 dwm启用时
+                    windowEdge = new WindowEdge(default, Handle, EdgeMode.BorderResize, EdgeMode.BorderResizeWidthShadow);
                 }
                 else
                 {
-                    borderWindows = ResizeBorderWindow.CreateWindows(default, Handle, ResizeBorderWindow.Mode.BorderResize);
+                    // win7 dwm禁用时
+                    windowEdge = new WindowEdge(default, Handle, EdgeMode.BorderResizeWidthShadow, EdgeMode.BorderResize);
                 }
 
                 UpdateWindowPos(Handle);
@@ -212,12 +216,12 @@ namespace Windows.Shell
             if (wParam == PInvoke.SIZE_MAXIMIZED)
             {
                 topDragWindow?.Hide();
-                borderWindows?.ForEach(x => x.Hide());
+                windowEdge?.Hide();
             }
             else if (wParam == PInvoke.SIZE_RESTORED)
             {
                 topDragWindow?.Show();
-                borderWindows?.ForEach(x => x.Show());
+                windowEdge?.Show();
             }
 
             if (!dwmEnabled)
@@ -237,7 +241,7 @@ namespace Windows.Shell
         private LRESULT WmSetCursor(HWND hwnd, WPARAM wParam, LPARAM lParam, ref bool handled)
         {
             //对于自定义边框, 子窗口为模态框时, 激活闪烁 (需要配合WM_NCACTIVATE)
-            if (borderWindows != null)
+            if (windowEdge != null)
             {
                 if (PInvoke.PARAM.SignedLOWORD(lParam) == PInvoke.HTERROR && PInvoke.PARAM.SignedHIWORD(lParam) == PInvoke.WM_LBUTTONDOWN)
                 {
@@ -250,19 +254,16 @@ namespace Windows.Shell
 
         private void WmWindowPosChanged(LPARAM lParam)
         {
-            if (borderWindows != null)
+            if (windowEdge != null)
             {
                 var windowPos = Marshal.PtrToStructure<WINDOWPOS>(lParam);
                 var sizeChanged = (windowPos.flags & SET_WINDOW_POS_FLAGS.SWP_NOSIZE) == 0;
                 var posChanged = (windowPos.flags & SET_WINDOW_POS_FLAGS.SWP_NOMOVE) == 0;
-                var show = (windowPos.flags & SET_WINDOW_POS_FLAGS.SWP_SHOWWINDOW) == SET_WINDOW_POS_FLAGS.SWP_SHOWWINDOW;
-
-                var rect = default(RECT);
 
                 if (sizeChanged || posChanged)
                 {
-                    PInvoke.GetClientRect(this.Handle, out rect);
-                    borderWindows.ForEach(x => x.UpdatePosition(rect));
+                    PInvoke.GetClientRect(Handle, out var rect);
+                    windowEdge.UpdatePosition(rect);
                 }
             }
         }
@@ -335,19 +336,13 @@ namespace Windows.Shell
             return new LRESULT(0);
         }
 
-        private static LRESULT WmNcHitTest(HWND hwnd, LPARAM lParam, ref bool handled)
+        private LRESULT WmNcHitTest(HWND hwnd, LPARAM lParam, ref bool handled)
         {
             var _pos = PInvoke.PARAM.ToPoint(lParam);
             var pos = WindowHelper.PointToClient(hwnd, _pos);
             var dpi = WindowHelper.GetDpiForWindow(hwnd);
 
-            if (pos.Y < 32 * dpi / PInvoke.USER_DEFAULT_SCREEN_DPI)
-            {
-                handled = true;
-                return new LRESULT((nint)PInvoke.HTCAPTION);
-            }
-
-            if (OsVersion.IsWindows10_1507OrGreater)
+            if (windowEdge == null)
             {
                 var size = WindowHelper.GetWindowBorderSize(dpi);
                 if (pos.Y < size.Height)
@@ -366,6 +361,23 @@ namespace Windows.Shell
                 }
             }
 
+            if (pos.Y < 32 * dpi / PInvoke.USER_DEFAULT_SCREEN_DPI)
+            {
+                if (pos.X < 0)
+                {
+                    handled = false;
+                    return new LRESULT((nint)PInvoke.HTTOPLEFT);
+                }
+                PInvoke.GetClientRect(hwnd, out var rect);
+                if (pos.X > rect.right)
+                {
+                    handled = false;
+                    return new LRESULT(0);
+                }
+                handled = true;
+                return new LRESULT(0);
+            }
+
             return new LRESULT(0);
         }
 
@@ -373,10 +385,10 @@ namespace Windows.Shell
         {
             isActive = wParam != 0;
 
-            if (borderWindows != null)
+            if (windowEdge != null)
             {
                 PInvoke.GetClientRect(hwnd, out var rect);
-                borderWindows.ForEach(x => x.UpdatePositionWidthActive(rect, isActive));
+                windowEdge.UpdatePositionWidthActive(rect, isActive);
             }
         }
 
@@ -385,19 +397,29 @@ namespace Windows.Shell
             PInvoke.DwmIsCompositionEnabled(out var dwmEnabled);
             this.dwmEnabled = dwmEnabled;
 
-            if (borderWindows != null)
+            if (windowEdge != null)
             {
                 PInvoke.GetClientRect(hwnd, out var rect);
-                ResizeBorderWindow.OnDwmChanged(borderWindows, rect, hwnd, dwmEnabled, isActive);
+                windowEdge.UpdateToNextMode(rect, hwnd, isActive);
+
+                if (dwmEnabled)
+                {
+                    _ = PInvoke.SetWindowRgn(hwnd, HRGN.Null, true);
+                }
+                else
+                {
+                    var hRgn = PInvoke.CreateRectRgnIndirect(rect);
+                    _ = PInvoke.SetWindowRgn(hwnd, hRgn, true);
+                }
             }
         }
 
         private LRESULT WmNcActivate(HWND hwnd, WPARAM wParam, ref bool handled)
         {
-            if (borderWindows != null)
+            if (windowEdge != null)
             {
                 PInvoke.GetClientRect(hwnd, out var rect);
-                borderWindows.ForEach(x => x.UpdatePositionWidthActive(rect, wParam != 0));
+                windowEdge.UpdatePositionWidthActive(rect, wParam != 0);
             }
 
             if (!dwmEnabled)
@@ -412,7 +434,7 @@ namespace Windows.Shell
         private void WmDwmColorizationColorChanged()
         {
             GetColorizationColor();
-            if (borderWindows != null && GlowHelper.UseDwmColor)
+            if (windowEdge != null && GlowHelper.UseDwmColor)
             {
                 GlowHelper.Restore();
             }
@@ -473,8 +495,8 @@ namespace Windows.Shell
 
         override protected void DisposeManagedResources()
         {
-            borderWindows?.ForEach(x => x.Close());
-            borderWindows = null;
+            windowEdge?.Close();
+            windowEdge = null;
             controlWindow?.Close();
             controlWindow = null;
             topDragWindow?.Close();
