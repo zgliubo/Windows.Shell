@@ -14,82 +14,21 @@ using System.ComponentModel;
 using System.Runtime.InteropServices;
 using Microsoft.Win32;
 using Windows.Win32.System.Registry;
+using Dock = Windows.Shell.WindowEdge.Dock;
+using EdgeMode = Windows.Shell.WindowEdge.EdgeMode;
 
 namespace Windows.Shell
 {
     class ResizeBorderWindow : NonClientWindow
     {
-        public enum Dock
-        {
-            Left,
-            Top,
-            Right,
-            Bottom
-        }
-
-        public enum Mode
-        {
-            /// <summary>
-            /// 仅边框线
-            /// </summary>
-            Border,
-            /// <summary>
-            /// 仅调整大小(全透明)
-            /// </summary>
-            Resize,
-            /// <summary>
-            ///  边框线和调整大小(Resize部分透明)
-            /// </summary>
-            BorderResize,
-            /// <summary>
-            /// 边框线和调整大小(包含阴影)
-            /// </summary>
-            BorderResizeWidthShadow
-        }
-
-        public static List<ResizeBorderWindow> CreateWindows(RECT position, HWND parent, Mode mode)
-        {
-            return new List<ResizeBorderWindow>
-            {
-                new(position, parent, Dock.Left, mode),
-                new(position, parent, Dock.Top, mode),
-                new(position, parent, Dock.Right, mode),
-                new(position, parent, Dock.Bottom, mode),
-            };
-        }
-
-        public static void OnDwmChanged(List<ResizeBorderWindow> windows, RECT position, HWND parent, bool dwmEnabled, bool isActive)
-        {
-            if (dwmEnabled)
-            {
-                _ = PInvoke.SetWindowRgn(parent, HRGN.Null, true);
-            }
-            else
-            {
-                var hRgn = PInvoke.CreateRectRgnIndirect(position);
-                _ = PInvoke.SetWindowRgn(parent, hRgn, true);
-            }
-
-            var mode = windows.First()._mode == Mode.BorderResize ? Mode.BorderResizeWidthShadow : Mode.BorderResize;
-
-            windows.ForEach(x => x.Close());
-            windows.Clear();
-            windows.AddRange(CreateWindows(default, parent, mode));
-            windows.ForEach(x =>
-            {
-                x.UpdatePositionWidthActive(position, isActive);
-                x.Show();
-            });
-        }
-
         private readonly Dock _dock;
-        private readonly Mode _mode;
+        private readonly EdgeMode _mode;
         private bool isActive;
 
-        public ResizeBorderWindow(RECT position, HWND parent, Dock dock, Mode mode)
+        public ResizeBorderWindow(RECT position, HWND parent, Dock dock, EdgeMode mode)
            : base(position, parent,
                  WINDOW_EX_STYLE.WS_EX_LAYERED,
-                 WINDOW_STYLE.WS_POPUP, setLayered: mode == Mode.Resize)
+                 WINDOW_STYLE.WS_POPUP, setLayered: mode == EdgeMode.Resize)
         {
             _dock = dock;
             _mode = mode;
@@ -163,7 +102,7 @@ namespace Windows.Shell
 
             lineWidth = bw;
 
-            if (_mode == Mode.Border)
+            if (_mode == EdgeMode.Border)
             {
                 size = new Size(bw, bw);
             }
@@ -179,19 +118,19 @@ namespace Windows.Shell
 
         private void RenderGlow(RECT position, int lineWidth)
         {
-            if (_mode == Mode.Resize)
+            if (_mode == EdgeMode.Resize)
             {
                 return;
             }
-            if (_mode == Mode.BorderResizeWidthShadow)
+            if (_mode == EdgeMode.BorderResizeWidthShadow)
             {
                 GlowHelper.RenderWithShadow(this.Handle, position, _dock, lineWidth, isActive);
             }
-            if (_mode == Mode.Border)
+            if (_mode == EdgeMode.Border)
             {
                 GlowHelper.RenderOnlyLine(this.Handle, position, _dock, lineWidth, isActive);
             }
-            if (_mode == Mode.BorderResize)
+            if (_mode == EdgeMode.BorderResize)
             {
                 GlowHelper.RenderWithResize(this.Handle, position, _dock, lineWidth, isActive);
             }
