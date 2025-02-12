@@ -5,7 +5,6 @@ using Windows.Win32.Graphics.Gdi;
 using Windows.Win32.UI.Shell;
 using System.Runtime.InteropServices;
 using System.ComponentModel;
-using System.Globalization;
 using System.Drawing;
 using EdgeMode = Windows.Shell.WindowEdge.EdgeMode;
 
@@ -182,7 +181,7 @@ namespace Windows.Shell
                     WmDwmCompositionChanged(hwnd);
                     break;
                 case PInvoke.WM_ACTIVATE:
-                    WmActivate(hwnd, wParam);
+                    result = WmActivate(hwnd, wParam, ref handled);
                     break;
                 case PInvoke.WM_DWMCOLORIZATIONCOLORCHANGED:
                     WmDwmColorizationColorChanged();
@@ -381,7 +380,7 @@ namespace Windows.Shell
             return new LRESULT(0);
         }
 
-        private void WmActivate(HWND hwnd, WPARAM wParam)
+        private LRESULT WmActivate(HWND hwnd, WPARAM wParam, ref bool handled)
         {
             isActive = wParam != 0;
 
@@ -390,6 +389,8 @@ namespace Windows.Shell
                 PInvoke.GetClientRect(hwnd, out var rect);
                 windowEdge.UpdatePositionWidthActive(rect, isActive);
             }
+
+            return new LRESULT(0);
         }
 
         private void WmDwmCompositionChanged(HWND hwnd)
